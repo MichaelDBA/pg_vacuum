@@ -25,6 +25,7 @@
 # July  18, 2019.  V2.4: Fixed vacuum/analyze check query (Step 2).  Wasn't catching rows where no vacuums/analyzes ever done.
 # Aug.  04, 2019.  V2.5: Add new parameter to do VACUUM FREEZE: --freeze. Default is not, but dryrun will show what could have been done.
 # Dec.  15, 2019.  V2.6: Add schema filter support. Fixed bugs: not skipping duplicate tables, invalid syntax for vacuum with 2+ parms where need to be in parens.
+# Dec.  16, 2019.  V2.6: Replace optparse with argparse which fixes a bug with optparse. Added freeze threshold logic.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -40,13 +41,12 @@
 # 00 03 * * * /home/postgres/mjv/optimize_db.py -H localhost -d <dbname> -u postgres -p 5432 -y 5 -t 5000 --dryrun >/home/postgres/mjv/optimize_db_`/bin/date +'\%Y-\%m-\%d-\%H.\%M.\%S'`.log 2>&1
 #
 ##################################################################################################
-#import sys, os, threading, argparse, ConfigParser 
 import sys, os, threading, argparse, time, datetime
 from optparse import OptionParser 
 import psycopg2
 import subprocess
 
-version = '2.6'
+version = '2.6  Dec. 16, 2019'
 OK = 0
 BAD = -1
 
@@ -76,6 +76,8 @@ threshold_max_processes = 12
 
 # load threshold, wait for a time if very high
 load_threshold = 250
+
+
 
 def printit(text):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -193,7 +195,8 @@ tablist = []
 
 # Setup up the argument parser
 # parser = OptionParser("PostgreSQL Vacumming Tool", add_help_option=False)
-parser = OptionParser("PostgreSQL Vacumming Tool", add_help_option=True)
+'''
+# parser = OptionParser("PostgreSQL Vacumming Tool", add_help_option=True)
 parser.add_option("-r", "--dryrun", dest="dryrun",   help="dry run", default=False, action="store_true", metavar="DRYRUN")
 parser.add_option("-f", "--freeze", dest="freeze",   help="vacuum freeze directive", default=False, action="store_true", metavar="FREEZE")
 parser.add_option("-H", "--host",   dest="hostname", help="host name",      type=str, default="localhost",metavar="HOSTNAME")
@@ -205,33 +208,56 @@ parser.add_option("-s", "--maxsize",dest="maxsize",  help="max table size", type
 parser.add_option("-y", "--maxdays",dest="maxdays",  help="max days",       type=int, default=5,metavar="MAXDAYS")
 parser.add_option("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups", type=int, default=10000,metavar="MINDEADTUPS")
 (options,args) = parser.parse_args()
+'''
+parser = argparse.ArgumentParser("PostgreSQL Vacumming Tool", add_help=True)
+parser.add_argument("-r", "--dryrun", dest="dryrun",          help="dry run",        default=False, action="store_true")
+parser.add_argument("-f", "--freeze", dest="freeze",          help="vacuum freeze directive", default=False, action="store_true")
+parser.add_argument("-H", "--host",   dest="hostname",        help="host name",      type=str, default="localhost",metavar="HOSTNAME")
+parser.add_argument("-d", "--dbname", dest="dbname",          help="database name",  type=str, default="",metavar="DBNAME")
+parser.add_argument("-u", "--dbuser", dest="dbuser",          help="database user",  type=str, default="postgres",metavar="DBUSER")
+parser.add_argument("-m", "--schema",dest="schema",           help="schema",         type=str, default="",metavar="SCHEMA")
+parser.add_argument("-p", "--dbport", dest="dbport",          help="database port",  type=int, default="5432",metavar="DBPORT") 
+parser.add_argument("-s", "--maxsize",dest="maxsize",         help="max table size", type=int, default=-1,metavar="MAXSIZE")
+parser.add_argument("-y", "--maxdays",dest="maxdays",         help="max days",       type=int, default=5,metavar="MAXDAYS")
+parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",     help="max pct until wraparound", type=int, default=90, metavar="PCTFREEZE")
+parser.add_argument("-t", "--mindeadtups",dest="mindeadtups", help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
+args = parser.parse_args()
+
 dryrun = False
 freeze = False
-if options.dryrun:
+if args.dryrun:
     dryrun = True
-if options.freeze:    
+if args.freeze:    
     freeze = True;
 
-if options.dbname == "":
+if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
 
-# if options.maxsize <> -1:
-if options.maxsize != -1:
+# if args.maxsize <> -1:
+if args.maxsize != -1:
     # use user-provided max instead of program default (300 GB)
-	threshold_max_size = options.maxsize
+	threshold_max_size = args.maxsize
 
-dbname   = options.dbname
-hostname = options.hostname
-dbport   = options.dbport
-dbuser   = options.dbuser
-schema   = options.schema
-threshold_max_days = options.maxdays
-min_dead_tups = options.mindeadtups
+dbname   = args.dbname
+hostname = args.hostname
+dbport   = args.dbport
+dbuser   = args.dbuser
+schema   = args.schema
+threshold_max_days = args.maxdays
+min_dead_tups = args.mindeadtups
+pctfreeze = args.pctfreeze
+if pctfreeze > 99 or pctfreeze < 10:
+    printit("pctfreeze must range between 10 and 99.")
+    sys.exit(1)
+
 if min_dead_tups > 100:
     threshold_dead_tups = min_dead_tups
 
-printit ("version (%s)  Parms: dryrun(%r)  freeze(%r)  host:%s dbname=%s schema=%s dbuser=%s dbport=%d max days: %d  min dead tups: %d  max table size: %d" % (version, dryrun, freeze, hostname, dbname, schema, dbuser, dbport, threshold_max_days, threshold_dead_tups, threshold_max_size ))
+printit ("version: *** %s ***  Parms: dryrun(%r)  freeze(%r)  host:%s dbname=%s schema=%s dbuser=%s dbport=%d max days: %d  min dead tups: %d  max table size: %d  pct freeze: %d" % (version, dryrun, freeze, hostname, dbname, schema, dbuser, dbport, threshold_max_days, threshold_dead_tups, threshold_max_size, pctfreeze ))
+
+# printit ("Exiting program prematurely for debug purposes.")
+# sys.exit(0)
 
 # Connect
 try:
@@ -291,12 +317,13 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No FREEZEs need to be done.")
 else:
-    printit ("VACUUM FREEZEs to be processed=%d" % len(rows) )
+    printit ("VACUUM FREEZEs to be processed=%d.  Includes deferred ones too." % len(rows) )
 
 cnt = 0 
 action_name = 'VACUUM FREEZE'
 if not dryrun and len(rows) > 0 and not freeze:
     printit ('Bypassing VACUUM FREEZE action for %d tables. Otherwise specify "--freeze" to do them.' % len(rows))
+    
 for row in rows:	 
     if not freeze and not dryrun:
         continue
@@ -319,20 +346,29 @@ for row in rows:
     howclose = row[4]
     sizep    = row[5]
     size   =   row[6]
-        
-    if size > threshold_max_size:
-        # defer action
-        if dryrun:
-            printit ("Async %15s  %03d %-52s rows: %13d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, sizep, size))
-            tables_skipped = tables_skipped + 1
-        continue		
+   
+    # also bypass tables that are less than 15% of max age
+    pctmax = float(xidage) / float(maxage)
+    # print("maxage=%10f  xidage=%10f  pctmax=%4f  pctfreeze=%4f" % (maxage, xidage, pctmax, pctfreeze))
+    if (100 * pctmax) < float(pctfreeze):
+       printit ("Async %15s  %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
+               % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, 100 * pctmax))        
+       tables_skipped = tables_skipped + 1               
+       continue
+
+       if size > threshold_max_size:
+          # defer action
+          printit ("Async %15s  %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d   NOTICE: Skipping extremely large table.  Do these manually." \
+                  % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
+          tables_skipped = tables_skipped + 1
+          continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d  freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1
             tablist.append(table)
             active_processes = active_processes + 1
@@ -341,7 +377,7 @@ for row in rows:
                 printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             cmd = 'nohup psql %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (dbname, table)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -351,10 +387,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1			
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             sql = "VACUUM FREEZE VERBOSE %s" % table
             time.sleep(0.5)
             try:            
