@@ -50,6 +50,10 @@ version = '2.6  Dec. 16, 2019'
 OK = 0
 BAD = -1
 
+fmtrows  = '%11d'
+fmtbytes = '%13d'
+
+1,000,000,000,000
 #threshold for freezing tables: 25 million rows from wraparound
 threshold_freeze = 25000000
 
@@ -348,37 +352,37 @@ for row in rows:
     size   =   row[6]
    
     # also bypass tables that are less than 15% of max age
-    pctmax = float(xidage) / float(maxage)
+    pctmax = float(xidage) / float(maxage) 
     # print("maxage=%10f  xidage=%10f  pctmax=%4f  pctfreeze=%4f" % (maxage, xidage, pctmax, pctfreeze))
     if (100 * pctmax) < float(pctfreeze):
-       printit ("Async %15s  %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
+       printit ("Async %15s  %03d %-52s rows: %11d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
                % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, 100 * pctmax))        
        tables_skipped = tables_skipped + 1               
        continue
 
        if size > threshold_max_size:
           # defer action
-          printit ("Async %15s  %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d   NOTICE: Skipping extremely large table.  Do these manually." \
+          printit ("Async %15s  %03d %-52s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
                   % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
           tables_skipped = tables_skipped + 1
           continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d  freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
-            cmd = 'nohup psql %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (dbname, table)
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            print(cmd)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_freezes = total_freezes + 1
@@ -387,11 +391,11 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1			
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
-            sql = "VACUUM FREEZE VERBOSE %s" % table
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            sql = "VACUUM (FREEZE, VERBOSE) %s" % table
             time.sleep(0.5)
             try:            
                 cur.execute(sql)
@@ -404,7 +408,14 @@ for row in rows:
             total_freezes = total_freezes + 1
             tablist.append(table)			
 	  
-	  
+	
+# if action is freeze just exit at this point gracefully
+if freeze:
+   conn.close()
+   printit ("End of Freeze action.  Closing the connection and exiting normally.")
+   sys.exit(0)
+
+    
 #################################
 # 2. Vacuum and Analyze query 
 #    older than threshold date OR (dead tups greater than threshold and table size greater than threshold min size)
@@ -485,26 +496,27 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1
         continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
-            cmd = 'nohup psql %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (dbname, table)
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums_analyzes = total_vacuums_analyzes + 1
@@ -513,11 +525,11 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)			            
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM (ANALYZE, VERBOSE) %s" % table
             time.sleep(0.5)
             try:            
@@ -610,25 +622,25 @@ for row in rows:
 		
     if size > threshold_max_size:
         # defer action
-        printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+        printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
         tables_skipped = tables_skipped + 1			
         continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
-            cmd = 'nohup psql %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (dbname, table)
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums  = total_vacuums + 1
@@ -636,10 +648,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums  = total_vacuums + 1
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" %  (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
             time.sleep(0.5)
             try:            
@@ -707,11 +719,11 @@ for row in rows:
         continue
 
     if dryrun:
-        printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+        printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
         total_analyzes  = total_analyzes + 1
         tablist.append(table)
     else:
-        printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))		
+        printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))		
         sql = "ANALYZE VERBOSE %s" % table
         time.sleep(0.5)
         total_analyzes  = total_analyzes + 1
@@ -799,41 +811,41 @@ for row in rows:
 		
     if size > threshold_max_size:
         if dryrun:
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1			
         else:
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1			
         continue	
     elif size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %-52s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %-52s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             active_processes = active_processes + 1
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %-52s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %-52s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
-            cmd = 'nohup psql %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (dbname, table)
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             active_processes = active_processes + 1
             total_analyzes  = total_analyzes + 1
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))			
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))			
             tablist.append(table)
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
@@ -917,26 +929,26 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1
         continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes = total_analyzes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
-            cmd = 'nohup psql %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (dbname, table)
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_analyzes = total_analyzes + 1
@@ -945,10 +957,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
             try:            
@@ -1032,26 +1044,26 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d  NOTICE: Skipping extremely large table.  Do these manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d  dead: %8d  size: %10s :%13d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, dead, sizep, size))
             tables_skipped = tables_skipped + 1
         continue		
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue				
-            printit ("Async %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums = total_vacuums + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do these manually." % (action_name, table, sizep))
+                printit ("%15s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1				
                 continue		
-            printit ("Async %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
-            cmd = 'nohup psql %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (dbname, table)
+            printit ("Async %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums = total_vacuums + 1
@@ -1060,10 +1072,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %15s: %03d %-52s rows: %13d  dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
         else:
-            printit ("Sync  %15s: %03d %-52s rows: %13d dead: %8d  size: %10s :%13d" % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Sync  %15s: %03d %-52s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
             time.sleep(0.5)
             try:            
@@ -1092,4 +1104,3 @@ if rc > 0:
 conn.close()
 printit ("Closed the connection and exiting normally.")
 sys.exit(0)
-
