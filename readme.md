@@ -23,7 +23,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-u --dbuser`       database user
 <br/>
-`-m --maxsize`      max table size that will be considered
+`-s --maxsize`      max table size that will be considered
 <br/>
 `-y --maxdays`      vacuums/analyzes older than max days will be considered
 <br/>
