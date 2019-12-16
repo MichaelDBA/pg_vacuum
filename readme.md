@@ -31,6 +31,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-m --schema`       if provided, perform actions only on this schema
 <br/>
+`-z --pctfreeze`    specifies how close to wraparound before FREEZE is done.
+<br/>
 `-f --freeze`       perform freeze if necessary
 <br/>
 `-r --dryrun`       do a dry run for analysis before actually running it.
@@ -40,6 +42,10 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 ## Requirements
 1. python 2.7 or above
 2. python packages: psycopg2
+<br/>
+
+## Assumptions
+1. Only when a table is within 25 million of reaching the wraparound threshold is it considered a FREEZE candidate. 
 <br/>
 
 ## Examples
