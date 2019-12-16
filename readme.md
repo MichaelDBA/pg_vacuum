@@ -44,6 +44,6 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 
 ## Examples
 optimize_db.py -H localhost -d testing -p 5432 -u postgres --maxsize 40000000 --maxdays 1 --mindeadtups 1000 --schema public --dryrun
-<br/>
+<br/><br/>
 optimize_db.py -H localhost -d testing -p 5432 -u postgres -s 400000000000 -y 1 -t 1000 -m public --freeze
 <br/>
