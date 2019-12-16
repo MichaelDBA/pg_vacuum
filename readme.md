@@ -1,4 +1,5 @@
 *** optimize_db***
+
 This python program determines whether a vacuum/analyze/freeze should be done and if so, which one:
 
 (c) 2018-2020 SQLEXEC LLC
