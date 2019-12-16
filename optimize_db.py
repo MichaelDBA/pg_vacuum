@@ -1092,3 +1092,4 @@ if rc > 0:
 conn.close()
 printit ("Closed the connection and exiting normally.")
 sys.exit(0)
+
