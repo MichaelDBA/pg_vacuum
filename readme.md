@@ -16,15 +16,25 @@ The first version of this program was created in 2018.
 This program is useful to identify and vacuum tables.  Most inputs are optional, and either an optional parameter is not used or a default value is used if not provided.  That means you can override internal parameters by specifying them on the command line.  Here are the parameters:
 <br/>
 -H --host     host name
+<br/>
 -d --dbname       database name
+<br/>
 -p --dbport       database port
+<br/>
 -u --dbuser       database user
+<br/>
 -m --maxsize      max table size that will be considered
+<br/>
 -y --maxdays      vacuums/analyzes older than max days will be considered
+<br/>
 -t --mindeadtups  minimum dead tups before considering a vacuum
+<br/>
 -m --schema       if provided, perform actions only on this schema
+<br/>
 -f --freeze       perform freeze if necessary
+<br/>
 -r --dryrun       do a dry run for analysis before actually running it.
+<br/>
 <br/>
 
 ## Requirements
