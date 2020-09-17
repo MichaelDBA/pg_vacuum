@@ -27,6 +27,7 @@
 # Dec.  15, 2019.  V2.6: Add schema filter support. Fixed bugs: not skipping duplicate tables, invalid syntax for vacuum with 2+ parms where need to be in parens.
 # Dec.  16, 2019.  V2.6: Replace optparse with argparse which fixes a bug with optparse. Added freeze threshold logic. Fixed nohup async calls which left out psql connection parms.
 # Mar.  18, 2020.  V2.7: Add option to run inquiry queries to validate work to be done. Fixed bug where case-sensitive table names caused errors. Added signal interrupts.
+# Sept. 13, 2020.  V2.8: Fixed bug in dryrun mode where inquiry section was not indented correctly causing an exception.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -47,7 +48,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '2.7  Mar. 18, 2020'
+version = '2.8  Sept. 13, 2020'
 OK = 0
 BAD = -1
 
@@ -1143,25 +1144,26 @@ if inquiry:
    else:
        printit ("Inquiry Results Follow...")
 
-cnt = 0
-for row in rows:
-    cnt = cnt + 1
-    table            = row[0]
-    sizep            = row[1]
-    size             = row[2]
-    xid_age          = row[3]
-    n_tup            = row[4]
-    n_live_tup       = row[5]
-    dead_tup         = row[6]
-    last_vacuum      = str(row[7])
-    last_autovacuum  = str(row[8])
-    last_analyze     = str(row[9])
-    last_autoanalyze = str(row[10])
+   # v2.8 fix: indented following section else if was not part of the inquiry if section for cases that did not specify inquiry action.
+   cnt = 0
+   for row in rows:
+      cnt = cnt + 1
+      table            = row[0]
+      sizep            = row[1]
+      size             = row[2]
+      xid_age          = row[3]
+      n_tup            = row[4]
+      n_live_tup       = row[5]
+      dead_tup         = row[6]
+      last_vacuum      = str(row[7])
+      last_autovacuum  = str(row[8])
+      last_analyze     = str(row[9])
+      last_autoanalyze = str(row[10])
     
-    if cnt == 1:
-       printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('table', 'sizep', 'size', 'xid_age', 'n_tup', 'n_live_tup', 'dead_tup', 'last_vacuum', 'last_autovac', 'last_analyze', 'last_autoanalyze'))
-       printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('-----', '-----', '----', '-------', '-----', '----------', '--------', '-----------', '------------', '------------', '----------------'))
-    printit("%50s %14s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))
+      if cnt == 1:
+         printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('table', 'sizep', 'size', 'xid_age', 'n_tup', 'n_live_tup', 'dead_tup', 'last_vacuum', 'last_autovac', 'last_analyze', 'last_autoanalyze'))
+         printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('-----', '-----', '----', '-------', '-----', '----------', '--------', '-----------', '------------', '------------', '----------------'))
+      printit("%50s %14s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))
 
 # end of inquiry section
 
