@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# may have to use python2 instead of python on above line. CentOS 8
 ##################################################################################################
 # optimize_db.py
 #
