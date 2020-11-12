@@ -39,6 +39,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-q --inquiry`      show stats to validate run.  Best used with dryrun.
 <br/>
+`-a --ignoreparts`  ignore partitioned tables
+<br/>
 <br/>
 
 ## Requirements
@@ -48,6 +50,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 
 ## Assumptions
 1. Only when a table is within 25 million of reaching the wraparound threshold is it considered a FREEZE candidate. 
+2. By default, catalog tables are ignored unless specified explicitly with the --schema option.
 <br/>
 
 ## Examples
