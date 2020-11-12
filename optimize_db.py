@@ -161,9 +161,12 @@ def get_vacuums_in_progress(conn, cur):
     return rows[1]
 
 def skip_table (atable, tablist):
+    #print "table=%s  tablist=%s" % (atable, tablist)
     if atable in tablist:
+        #print "table is in the list"
         return True
     else:
+        #print "table is not in the list"
         return False
 
 def wait_for_processes(conn,cur):
@@ -542,6 +545,7 @@ for row in rows:
         # defer action
         if dryrun:
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            tablist.append(table)
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
@@ -549,6 +553,7 @@ for row in rows:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
+                tablist.append(table)
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
@@ -557,6 +562,7 @@ for row in rows:
         else:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                tablist.append(table)
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
@@ -674,6 +680,8 @@ for row in rows:
     # check if we already processed this table
     if skip_table(table, tablist):
         continue
+    else:
+        printit("table = %s will NOT be skipped." % table)
 
     if size > threshold_max_size:
         # defer action
