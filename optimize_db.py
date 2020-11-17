@@ -81,8 +81,8 @@ threshold_max_size = 400000000000
 # 50 MB minimum threshold
 threshold_min_size = 50000000
 
-# 50 GB threshold, above this table actions are done asynchronously
-threshold_max_sync = 50000000000
+# 100 GB threshold, above this table actions are done asynchronously
+threshold_max_sync = 100000000000
 
 # max async processes
 threshold_max_processes = 12
