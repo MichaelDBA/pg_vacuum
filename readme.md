@@ -37,7 +37,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-r --dryrun`       do a dry run for analysis before actually running it.
 <br/>
-`-q --inquiry`      show stats to validate run.  Best used with dryrun.
+`-q --inquiry`      show stats to validate run.  Best used with dryrun. Values: "all" | "found" | not specified
 <br/>
 `-a --ignoreparts`  ignore partitioned tables
 <br/>
