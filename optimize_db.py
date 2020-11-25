@@ -93,7 +93,7 @@ load_threshold = 250
 def signal_handler(signal, frame):
      printit('User-interrupted!')
      sys.exit(1)
-
+     
 def printit(text):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     txt = now + ' ' + text
@@ -193,7 +193,8 @@ def wait_for_processes(conn,cur):
 
 # Register the signal handler for CNTRL-C logic
 signal.signal(signal.SIGINT, signal_handler)
-
+signal.siginterrupt(signal.SIGINT, False)        
+# test interrupt
 #while True:
 #    print('Waiting...')
 #    time.sleep(5)
@@ -233,7 +234,7 @@ parser.add_option("-p", "--dbport", dest="dbport",   help="database port",  type
 parser.add_option("-s", "--maxsize",dest="maxsize",  help="max table size", type=int, default=-1,metavar="MAXSIZE")
 parser.add_option("-y", "--maxdays",dest="maxdays",  help="max days",       type=int, default=5,metavar="MAXDAYS")
 iparser.add_option("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups", type=int, default=10000,metavar="MINDEADTUPS")
-parser.add_option("-q", "--inquiry", dest="inquiry",   help="inquiry queries requested", default=False, action="store_true", metavar="INQUIRY")
+parser.add_option("-q", "--inquiry", dest="inquiry", help="inquiry queries requested", type=str default="", metavar="INQUIRY")
 (options,args) = parser.parse_args()
 '''
 parser = argparse.ArgumentParser("PostgreSQL Vacumming Tool", add_help=True)
@@ -248,7 +249,7 @@ parser.add_argument("-s", "--maxsize",dest="maxsize",          help="max table s
 parser.add_argument("-y", "--maxdays",dest="maxdays",          help="max days",       type=int, default=5,metavar="MAXDAYS")
 parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",      help="max pct until wraparoun", type=int, default=90, metavar="PCTFREEZE")
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
-parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry query requested", default=False, action="store_true")
+parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry query requested", type=str, default="", metavar="INQUIRY")
 parser.add_argument("-a", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
 
 args = parser.parse_args()
@@ -289,7 +290,13 @@ if min_dead_tups > 100:
     threshold_dead_tups = min_dead_tups
 
 inquiry = args.inquiry
-printit ("version: *** %s ***  Parms: dryrun(%r) inquiry(%r) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d max days: %d  min dead tups: %d  max table size: %d  pct freeze: %d" \
+if inquiry == 'all' or inquiry == 'found' or inquiry == '':
+    pass
+else:
+    printit("Inquiry parameter invalid.  Must be 'all' or 'found' or not specified.")
+    sys.exit(1)
+
+printit ("version: *** %s ***  Parms: dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d max days: %d  min dead tups: %d  max table size: %d  pct freeze: %d" \
         % (version, dryrun, inquiry, freeze, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days, threshold_dead_tups, threshold_max_size, pctfreeze))
 
 # printit ("Exiting program prematurely for debug purposes.")
@@ -384,7 +391,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No FREEZEs need to be done.")
 else:
-    printit ("VACUUM FREEZEs to be processed=%d.  Includes deferred ones too." % len(rows) )
+    printit ("VACUUM FREEZEs to be evaluated=%d.  Includes deferred ones too." % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -562,7 +569,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No vacuum/analyze pairs to be done.")
 else:
-    printit ("vacuums/analyzes to be processed=%d" % len(rows) )
+    printit ("vacuums/analyzes to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -724,7 +731,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No vacuums to be done.")
 else:
-    printit ("vacuums to be processed=%d" % len(rows) )
+    printit ("vacuums to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -862,7 +869,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No small tables require analyzes to be done.")
 else:
-    printit ("Small table analyzes to be processed=%d" % len(rows) )
+    printit ("Small table analyzes to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -968,9 +975,9 @@ except psycopg2.Error as e:
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No stale tables require analyzes to be done.")
-    printit ("Stale table statistics require analyzes to be processed=%d" % len(rows) )
+    printit ("Stale table statistics require analyzes to be evaluated=%d" % len(rows) )
 else:
-    printit ("Big table analyzes to be processed=%d" % len(rows) )
+    printit ("Big table analyzes to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -1117,7 +1124,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No very old analyzes to be done.")
 else:
-    printit ("very old analyzes to be processed=%d" % len(rows) )
+    printit ("very old analyzes to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -1260,7 +1267,7 @@ rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No very old vacuums to be done.")
 else:
-    printit ("very old vacuums to be processed=%d" % len(rows) )
+    printit ("very old vacuums to be evaluated=%d" % len(rows) )
 
 cnt = 0
 partcnt = 0
@@ -1358,16 +1365,17 @@ if rc > 0:
     printit ("NOTE: Current vacuums/analyzes still in progress: %d" % (rc))
 
 # v 2.7 feature: if inquiry, then show results of 2 queries
-if inquiry:
+# print "tables evaluated=%s" % tablist
+if inquiry <> '':
    if schema == "":
-      sql = "SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
          "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, age(c.relfrozenxid) as xid_age,c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, " \
          "u.n_dead_tup::bigint AS dead_tup, coalesce(to_char(u.last_vacuum, 'YYYY-MM-DD'),'') as last_vacuum, coalesce(to_char(u.last_autovacuum, 'YYYY-MM-DD'),'') as last_autovacuum, " \
          "coalesce(to_char(u.last_analyze,'YYYY-MM-DD'),'') as last_analyze, coalesce(to_char(u.last_autoanalyze,'YYYY-MM-DD'),'') as last_autoanalyze " \
          "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname " \
          "and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') order by 1"
    else:
-      sql = "SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
          "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, age(c.relfrozenxid) as xid_age,c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, " \
          "u.n_dead_tup::bigint AS dead_tup, coalesce(to_char(u.last_vacuum, 'YYYY-MM-DD'),'') as last_vacuum, coalesce(to_char(u.last_autovacuum, 'YYYY-MM-DD'),'') as last_autovacuum, " \
          "coalesce(to_char(u.last_analyze,'YYYY-MM-DD'),'') as last_analyze, coalesce(to_char(u.last_autoanalyze,'YYYY-MM-DD'),'') as last_autoanalyze " \
@@ -1401,11 +1409,25 @@ if inquiry:
       last_autovacuum  = str(row[8])
       last_analyze     = str(row[9])
       last_autoanalyze = str(row[10])
-    
+
       if cnt == 1:
-         printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('table', 'sizep', 'size', 'xid_age', 'n_tup', 'n_live_tup', 'dead_tup', 'last_vacuum', 'last_autovac', 'last_analyze', 'last_autoanalyze'))
-         printit("%50s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('-----', '-----', '----', '-------', '-----', '----------', '--------', '-----------', '------------', '------------', '----------------'))
-      printit("%50s %14s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))
+          printit("%55s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('table', 'sizep', 'size', 'xid_age', 'n_tup', 'n_live_tup', 'dead_tup', 'last_vacuum', 'last_autovac', 'last_analyze', 'last_autoanalyze'))
+          printit("%55s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('-----', '-----', '----', '-------', '-----', '----------', '--------', '-----------', '------------', '------------', '----------------'))
+
+      #print "table = %s  len=%d" % (table, len(table))
+
+      #pretty_size_span = 14     
+      #reduce = len(table) - 50
+      #if reduce > 0 and reduce < 8:
+      #    pretty_size_span = pretty_size_span - reduce
+
+      if inquiry == 'all':
+          printit("%55s %14s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))      
+          #printit("%55s %d%s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, pretty_size_span, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))                
+      else:    
+          if skip_table(table, tablist):      
+              printit("%55s %14s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))
+              #printit("%55s %d%s %14d %14d %12d %10d %10d %11s %12s %12s %16s" % (table, pretty_size_span, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, last_vacuum, last_autovacuum, last_analyze, last_autoanalyze))              
 
 # end of inquiry section
 
