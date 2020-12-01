@@ -33,6 +33,7 @@
 #                        Added parameter, --ignoreparts and sql logic supporting it.
 #                        Ignore pg_catalog and information_schema tables not in ('pg_catalog', 'pg_toast', 'information_schema')
 # Nov.  17, 2020.  V2.9: Deal with missing relispartition column from queries since it does not exist prior to version 10
+# Dec.  01, 2020.  V2.9: Undo logic for #6 Catchall query for analyze that have not happened for over 30 days, not 14. 
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -1073,11 +1074,11 @@ if ignoreparts:
 '''
 -- all
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1;
 
 -- public schema
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1;
 
 '''
 if version > 100000:
@@ -1087,14 +1088,14 @@ if version > 100000:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1"
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1" % (schema)
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1" % (schema)
 else:
 # put version 9.x compatible query here  
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
@@ -1104,14 +1105,14 @@ else:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1"
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 14  order by 4,1" % (schema)
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1" % (schema)
 
 try:
      cur.execute(sql)
