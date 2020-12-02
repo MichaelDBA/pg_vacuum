@@ -790,7 +790,7 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums  = total_vacuums + 1
@@ -1330,7 +1330,7 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums = total_vacuums + 1
