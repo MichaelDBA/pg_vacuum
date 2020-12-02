@@ -33,7 +33,7 @@
 #                        Added parameter, --ignoreparts and sql logic supporting it.
 #                        Ignore pg_catalog and information_schema tables not in ('pg_catalog', 'pg_toast', 'information_schema')
 # Nov.  17, 2020.  V2.9: Deal with missing relispartition column from queries since it does not exist prior to version 10
-# Dec.  01, 2020.  V2.9: Undo logic for #6 Catchall query for analyze that have not happened for over 30 days, not 14. 
+# Dec.  02, 2020.  V2.9: Undo logic for #6 Catchall query for analyze that have not happened for over 30 days, not 14. Also, fixed dup tables again.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -250,7 +250,7 @@ parser.add_argument("-s", "--maxsize",dest="maxsize",          help="max table s
 parser.add_argument("-y", "--maxdays",dest="maxdays",          help="max days",       type=int, default=5,metavar="MAXDAYS")
 parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",      help="max pct until wraparoun", type=int, default=90, metavar="PCTFREEZE")
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
-parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry query requested", type=str, default="", metavar="INQUIRY")
+parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry requested", choices=['all', 'found', ''], type=str, default="", metavar="INQUIRY")
 parser.add_argument("-a", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
 
 args = parser.parse_args()
@@ -294,7 +294,7 @@ inquiry = args.inquiry
 if inquiry == 'all' or inquiry == 'found' or inquiry == '':
     pass
 else:
-    printit("Inquiry parameter invalid.  Must be 'all' or 'found' or not specified.")
+    printit("Inquiry parameter invalid.  Must be 'all' or 'found'")
     sys.exit(1)
 
 printit ("version: *** %s ***  Parms: dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d max days: %d  min dead tups: %d  max table size: %d  pct freeze: %d" \
@@ -772,6 +772,7 @@ for row in rows:
         # defer action
         printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
         tables_skipped = tables_skipped + 1
+        tablist.append(table)
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
         if dryrun:
@@ -780,6 +781,7 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            tablist.append(table)
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
         else:
@@ -793,11 +795,13 @@ for row in rows:
             rc = execute_cmd(cmd)
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
+            tablist.append(table)
 
     else:
         if dryrun:
             printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums  = total_vacuums + 1
+            tablist.append(table)
         else:
             printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
@@ -811,6 +815,7 @@ for row in rows:
                 printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
                 continue
             total_vacuums  = total_vacuums + 1
+            tablist.append(table)
 
 if ignoreparts:
     printit ("Partitioned table vacuums bypassed=%d" % partcnt)
