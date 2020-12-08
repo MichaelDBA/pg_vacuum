@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 ##################################################################################################
-# optimize_db.py
+# pg_vacuum.py
 #
 # author: Michael Vitale, michaeldba@sqlexec.com
 #
@@ -42,13 +42,13 @@
 #   3. By default, system schemas are not included when schemaname is ommitted from command line.
 #
 # call example with all parameters:
-# optimize_db.py -H localhost -d testing -p 5432 -u postgres --maxsize 400000000000 --maxdays 1 --mindeadtups 1000 --schema public --inquiry --dryrun
-# optimize_db.py -H localhost -d testing -p 5432 -u postgres -s 400000000000 -y 1 -t 1000 -m public --freeze
+# pg_vacuum.py -H localhost -d testing -p 5432 -u postgres --maxsize 400000000000 --maxdays 1 --mindeadtups 1000 --schema public --inquiry --dryrun
+# pg_vacuum.py -H localhost -d testing -p 5432 -u postgres -s 400000000000 -y 1 -t 1000 -m public --freeze
 #
 # crontab example that runs every morning at 3am local time and will vacuum if more than 5000 dead tuples and/or its been over 5 days since the last vacuum/analyze.
 # SHELL=/bin/sh
 # PATH=<your binary paths as postgres user>
-# 00 03 * * * /home/postgres/mjv/optimize_db.py -H localhost -d <dbname> -u postgres -p 5432 -y 5 -t 5000 --dryrun >/home/postgres/mjv/optimize_db_`/bin/date +'\%Y-\%m-\%d-\%H.\%M.\%S'`.log 2>&1
+# 00 03 * * * /home/postgres/mjv/pg_vacuumb.py -H localhost -d <dbname> -u postgres -p 5432 -y 5 -t 5000 --dryrun >/home/postgres/mjv/optimize_db_`/bin/date +'\%Y-\%m-\%d-\%H.\%M.\%S'`.log 2>&1
 #
 ##################################################################################################
 import sys, os, threading, argparse, time, datetime, signal
@@ -56,7 +56,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '2.9  Nov. 17, 2020'
+version = '2.9  Dec. 8, 2020'
 OK = 0
 BAD = -1
 
@@ -307,7 +307,7 @@ printit ("version: *** %s ***  Parms: dryrun(%r) inquiry(%s) freeze(%r) ignorepa
 try:
     # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
     # connstr = "dbname=%s port=%d user=%s host=%s password=postgrespass" % (dbname, dbport, dbuser, hostname )
-    connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'optimize_db' )
+    connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
     conn = psycopg2.connect(connstr)
 except psycopg2.Error as e:
     printit ("Database Connection Error: %s" % (e))
