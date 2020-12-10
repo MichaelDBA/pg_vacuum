@@ -38,6 +38,7 @@
 # Dec.  10, 2020.  V3.0: Rewrite for compatibiliity with python 2 and python3 and all versions of psycopg2.
 #                        Changed "<>" to <!=>   
 #                        Changed print "whatever" to print ("whatever") 
+#                        shell command can return an empty byte string in python3--> b'', so check for that as well.
 #                        Removed Psycopg2 exception handling and replaced with general one.
 #
 # Notes:
