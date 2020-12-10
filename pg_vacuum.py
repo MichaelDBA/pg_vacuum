@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #!/usr/bin/env python2
 ##################################################################################################
 # pg_vacuum.py
@@ -34,6 +35,10 @@
 #                        Ignore pg_catalog and information_schema tables not in ('pg_catalog', 'pg_toast', 'information_schema')
 # Nov.  17, 2020.  V2.9: Deal with missing relispartition column from queries since it does not exist prior to version 10
 # Dec.  04, 2020.  V2.9: Undo logic for #6 Catchall query for analyze that have not happened for over 30 days, not 14. Also, fixed dup tables again. and for very old vacuums
+# Dec.  10, 2020.  V3.0: Rewrite for compatibiliity with python 2 and python3 and all versions of psycopg2.
+#                        Changed "<>" to <!=>   
+#                        Changed print "whatever" to print ("whatever") 
+#                        Removed Psycopg2 exception handling and replaced with general one.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -56,7 +61,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '2.9  Dec. 8, 2020'
+version = '3.0  Dec. 10, 2020'
 OK = 0
 BAD = -1
 
@@ -138,7 +143,9 @@ def getload():
     total_cpu=float(psutil.cpu_count())
     load_average=os.getloadavg()
     load_now=float(load_average[0])
-    print "load average=%s" % (load_average,) # print "total cpu=%d" % total_cpu # print "load now=%d" % load_now
+    print ("load average=%s" % (load_average) 
+    # print ("total cpu=%d" % total_cpu)
+    # print ("load now=%d" % load_now)
 
     if (load_now > total_cpu):
         cpu_usage = ("CPU is :" + str(cpu_percent))
@@ -163,12 +170,12 @@ def get_vacuums_in_progress(conn, cur):
     return rows[1]
 
 def skip_table (atable, tablist):
-    #print "table=%s  tablist=%s" % (atable, tablist)
+    #print ("table=%s  tablist=%s" % (atable, tablist))
     if atable in tablist:
-        #print "table is in the list"
+        #print ("table is in the list")
         return True
     else:
-        #print "table is not in the list"
+        #print ("table is not in the list")
         return False
 
 def wait_for_processes(conn,cur):
@@ -229,7 +236,7 @@ parser.add_option("-r", "--dryrun", dest="dryrun",   help="dry run", default=Fal
 parser.add_option("-f", "--freeze", dest="freeze",   help="vacuum freeze directive", default=False, action="store_true", metavar="FREEZE")
 parser.add_option("-H", "--host",   dest="hostname", help="host name",      type=str, default="localhost",metavar="HOSTNAME")
 parser.add_option("-d", "--dbname", dest="dbname",   help="database name",  type=str, default="",metavar="DBNAME")
-parser.add_option("-u", "--dbuser", dest="dbuser",   help="database user",  type=str, default="postgres",metavar="DBUSER")
+parser.add_option("-U", "--dbuser", dest="dbuser",   help="database user",  type=str, default="postgres",metavar="DBUSER")
 parser.add_option("-m", "--schema",dest="schema",    help="schema",         type=str, default="",metavar="SCHEMA")
 parser.add_option("-p", "--dbport", dest="dbport",   help="database port",  type=int, default="5432",metavar="DBPORT")
 parser.add_option("-s", "--maxsize",dest="maxsize",  help="max table size", type=int, default=-1,metavar="MAXSIZE")
@@ -243,7 +250,7 @@ parser.add_argument("-r", "--dryrun", dest="dryrun",           help="dry run",  
 parser.add_argument("-f", "--freeze", dest="freeze",           help="vacuum freeze directive", default=False, action="store_true")
 parser.add_argument("-H", "--host",   dest="hostname",         help="host name",      type=str, default="localhost",metavar="HOSTNAME")
 parser.add_argument("-d", "--dbname", dest="dbname",           help="database name",  type=str, default="",metavar="DBNAME")
-parser.add_argument("-u", "--dbuser", dest="dbuser",           help="database user",  type=str, default="postgres",metavar="DBUSER")
+parser.add_argument("-U", "--dbuser", dest="dbuser",           help="database user",  type=str, default="postgres",metavar="DBUSER")
 parser.add_argument("-m", "--schema",dest="schema",            help="schema",         type=str, default="",metavar="SCHEMA")
 parser.add_argument("-p", "--dbport", dest="dbport",           help="database port",  type=int, default="5432",metavar="DBPORT")
 parser.add_argument("-s", "--maxsize",dest="maxsize",          help="max table size", type=int, default=-1,metavar="MAXSIZE")
@@ -269,7 +276,7 @@ if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
 
-# if args.maxsize <> -1:
+# if args.maxsize != -1:
 if args.maxsize != -1:
     # use user-provided max instead of program default (300 GB)
         threshold_max_size = args.maxsize
@@ -304,16 +311,16 @@ printit ("version: *** %s ***  Parms: dryrun(%r) inquiry(%s) freeze(%r) ignorepa
 # sys.exit(0)
 
 # Connect
+# conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
+# connstr = "dbname=%s port=%d user=%s host=%s password=postgrespass" % (dbname, dbport, dbuser, hostname )
+connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
 try:
-    # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
-    # connstr = "dbname=%s port=%d user=%s host=%s password=postgrespass" % (dbname, dbport, dbuser, hostname )
-    connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
     conn = psycopg2.connect(connstr)
-except psycopg2.Error as e:
-    printit ("Database Connection Error: %s" % (e))
-    sys.exit(1)
-
-printit ("connected to database successfully.")
+except Exception as error:
+    printit("Database Connection Error: %s *** %s" % (type(error), error))
+    sys.exit (1)
+        
+printit("connected to database successfully.")
 
 # to run vacuum through the psycopg2 driver, the isolation level must be changed.
 old_isolation_level = conn.isolation_level
@@ -330,12 +337,12 @@ cur = conn.cursor()
 
 sql = "show server_version_num"
 try:
-     cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
+    cur.execute(sql)
+except Exception as error:
     printit ("Unable to get server version number: %s" % (e))
     conn.close()
     sys.exit (1)
+
 rows = cur.fetchone()
 version = int(rows[0])
 
@@ -382,11 +389,10 @@ else:
       
 try:
      cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Freeze Tables Exception: %s *** %s" % (type(error), error))
     conn.close()
-    sys.exit (1)
+    sys.exit (1)     
 
 rows = cur.fetchall()
 if len(rows) == 0:
@@ -426,7 +432,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print ("ignoring partitioned table: %s" % table)
         continue
 
     # also bypass tables that are less than 15% of max age
@@ -477,14 +483,11 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-#            except psycopg2.Warning, w:
-#                printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
-#                continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
                 continue
             total_freezes = total_freezes + 1
-            tablist.append(table)
+            tablist.append(table)            
 
 if ignoreparts:
     printit ("Partitioned table vacuum freezes bypassed=%d" % partcnt)
@@ -560,9 +563,8 @@ else:
       
 try:
      cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
 
@@ -598,7 +600,7 @@ for row in rows:
     
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        print "ignoring partitioned table: %s" % table
+        print ("ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
@@ -649,13 +651,9 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-            except psycopg2.Warning, w:
-                printit("Warning: %s %s %s cmd=%s" % (w.pgcode, w.diag.severity, w.diag.message_primary, sql))
-                continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s cmd=%s" % (e.pgcode, e.diag.severity, e.diag.message_primary, sql))
-                continue
-
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
+                continue            
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
 
@@ -723,11 +721,11 @@ else:
       
 try:
      cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
+    
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No vacuums to be done.")
@@ -759,7 +757,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print ("ignoring partitioned table: %s" % table)
         continue
         
     # check if we already processed this table
@@ -808,11 +806,8 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-            except psycopg2.Warning, w:
-                printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
-                continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
                 continue
             total_vacuums  = total_vacuums + 1
             tablist.append(table)
@@ -862,15 +857,14 @@ else:
       "now()::date  - last_analyze::date as lastanalyzed2 from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname and " \
       "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d " \
       "and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2" % (schema, threshold_max_days, threshold_min_size)
-      
+
 try:
     cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
-    sys.exit (1)
-
+    sys.exit (1)    
+      
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No small tables require analyzes to be done.")
@@ -891,7 +885,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print *"ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
@@ -910,10 +904,8 @@ for row in rows:
         tablist.append(table)
         try:
             cur.execute(sql)
-        except psycopg2.Warning, w:
-            printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
-        except psycopg2.Error, e:
-            printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
+        except Exception as error:
+            printit("Exception: %s *** %s" % (type(error), error))
 
 if ignoreparts:
     printit ("Small partitioned table analyzes bypassed=%d" % partcnt)
@@ -969,12 +961,11 @@ else:
       "from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and  " \
       "u.schemaname = n.nspname and ((last_analyze is null and last_autoanalyze is null) or (now()::date  - last_analyze::date > %d AND  " \
       "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d order by 1,2;" % (schema, threshold_max_days,threshold_max_days, threshold_min_size)
-      
+
 try:
     cur.execute(sql)
-#except psycopg2.Error, e:
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
 
@@ -999,7 +990,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print ("ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
@@ -1060,11 +1051,8 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-            except psycopg2.Warning, w:
-                printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
-                continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
                 continue
             total_analyzes  = total_analyzes + 1
 if ignoreparts:
@@ -1118,11 +1106,10 @@ else:
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
       "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1" % (schema)
-
 try:
-     cur.execute(sql)
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+    cur.execute(sql)
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
 
@@ -1158,7 +1145,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print ("ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
@@ -1204,13 +1191,9 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-            except psycopg2.Warning, w:
-                printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
                 continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
-                continue
-
             total_analyzes = total_analyzes + 1
             tablist.append(table)
 
@@ -1264,8 +1247,8 @@ else:
       
 try:
      cur.execute(sql)
-except psycopg2.Error as e:
-    printit ("Select Error: %s" % (e))
+except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
 
@@ -1301,7 +1284,7 @@ for row in rows:
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        #print "ignoring partitioned table: %s" % table
+        #print ("ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
@@ -1347,11 +1330,8 @@ for row in rows:
             time.sleep(0.5)
             try:
                 cur.execute(sql)
-            except psycopg2.Warning, w:
-                printit("Warning: %s %s %s" % (w.pgcode, w.diag.severity, w.diag.message_primary))
-                continue
-            except psycopg2.Error, e:
-                printit("Error  : %s %s %s" % (e.pgcode, e.diag.severity, e.diag.message_primary))
+            except Exception as error:
+                printit("Exception: %s *** %s" % (type(error), error))
                 continue
 
             total_vacuums = total_vacuums + 1
@@ -1371,8 +1351,8 @@ if rc > 0:
     printit ("NOTE: Current vacuums/analyzes still in progress: %d" % (rc))
 
 # v 2.7 feature: if inquiry, then show results of 2 queries
-# print "tables evaluated=%s" % tablist
-if inquiry <> '':
+# print ("tables evaluated=%s" % tablist)
+if inquiry != '':
    if schema == "":
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
          "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, age(c.relfrozenxid) as xid_age,c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, " \
@@ -1388,9 +1368,9 @@ if inquiry <> '':
          "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname " \
          "and u.schemaname = n.nspname order by 1" % schema
    try:
-        cur.execute(sql)
-   except psycopg2.Error as e:
-       printit ("Select Error: %s" % (e))
+       cur.execute(sql)
+   except Exception as error:
+       printit("Exception: %s *** %s" % (type(error), error))
        conn.close()
        sys.exit (1)
 
@@ -1420,7 +1400,7 @@ if inquiry <> '':
           printit("%55s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('table', 'sizep', 'size', 'xid_age', 'n_tup', 'n_live_tup', 'dead_tup', 'last_vacuum', 'last_autovac', 'last_analyze', 'last_autoanalyze'))
           printit("%55s %14s %14s %14s %12s %10s %10s %11s %12s %12s %16s" % ('-----', '-----', '----', '-------', '-----', '----------', '--------', '-----------', '------------', '------------', '----------------'))
 
-      #print "table = %s  len=%d" % (table, len(table))
+      #print ("table = %s  len=%d" % (table, len(table)))
 
       #pretty_size_span = 14     
       #reduce = len(table) - 50
