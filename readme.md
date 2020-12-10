@@ -22,7 +22,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-p --dbport`       database port
 <br/>
-`-u --dbuser`       database user
+`-U --dbuser`       database user
 <br/>
 `-s --maxsize`      max table size that will be considered
 <br/>
