@@ -38,8 +38,9 @@
 # Dec.  10, 2020.  V3.0: Rewrite for compatibiliity with python 2 and python3 and all versions of psycopg2.
 #                        Changed "<>" to <!=>   
 #                        Changed print "whatever" to print ("whatever") 
-#                        shell command can return an empty byte string in python3--> b'', so check for that as well.
 #                        Removed Psycopg2 exception handling and replaced with general one.
+# Jan.  03, 2021   V3.1: Show aysync jobs summary. Added new parm, async, to trigger async jobs even if thresholds are not met (coded, but not implemented yet). 
+#                        Added application name to async jobs.  Lowered async threshold for max rows (threshold_async_rows) and max sync size (threshold_max_sync)
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -79,8 +80,8 @@ threshold_dead_tups = 1000
 # last vacuum or analyze
 threshold_max_days = 5
 
-# 200 million row threshold
-threshold_async_rows = 200000000
+# 100 million row threshold
+threshold_async_rows = 100000000
 
 # 400 GB threshold, above this table actions are deferred
 threshold_max_size = 400000000000
@@ -159,7 +160,7 @@ def getload():
 '''
 
 def get_query_cnt(conn, cur):
-    sql = "select count(*) from pg_stat_activity where state = 'active' and query like 'VACUUM FREEZE VERBOSE%' OR query like 'VACUUM ANALYZE VERBOSE%' OR query like 'VACUUM VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
+    sql = "select count(*) from pg_stat_activity where state = 'active' and application_name = 'pg_vacuum' and query like 'VACUUM FREEZE VERBOSE%' OR query like 'VACUUM ANALYZE VERBOSE%' OR query like 'VACUUM VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
     cur.execute(sql)
     rows = cur.fetchone()
     return int(rows[0])
@@ -227,6 +228,7 @@ total_vacuums  = 0
 total_analyzes = 0
 tables_skipped = 0
 partitioned_tables_skipped = 0
+asyncjobs = 0
 tablist = []
 
 # Setup up the argument parser
@@ -259,20 +261,23 @@ parser.add_argument("-y", "--maxdays",dest="maxdays",          help="max days", 
 parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",      help="max pct until wraparoun", type=int, default=90, metavar="PCTFREEZE")
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
 parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry requested", choices=['all', 'found', ''], type=str, default="", metavar="INQUIRY")
-parser.add_argument("-a", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
+parser.add_argument("-i", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
+parser.add_argument("-a", "--async", dest="async",             help="run async jobs", default=False, action="store_true")
 
 args = parser.parse_args()
 
 dryrun      = False
 freeze      = False
 ignoreparts = False
+async       = False
 if args.dryrun:
     dryrun = True
 if args.freeze:
     freeze = True;
 if args.ignoreparts:
     ignoreparts = True;    
-
+if args.async:
+    async = True;        
 if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
@@ -452,6 +457,7 @@ for row in rows:
           tables_skipped = tables_skipped + 1
           continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -466,9 +472,14 @@ for row in rows:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, table)
             print(cmd)
             time.sleep(0.5)
+            asyncjobs = asyncjobs + 1
+            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             rc = execute_cmd(cmd)
             total_freezes = total_freezes + 1
             tablist.append(table)
@@ -616,6 +627,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -633,7 +645,12 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            asyncjobs = asyncjobs + 1
+            
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, table)            
 
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -774,6 +791,7 @@ for row in rows:
         tablist.append(table)
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -789,7 +807,13 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            asyncjobs = asyncjobs + 1
+            
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, table)                        
+
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums  = total_vacuums + 1
@@ -973,7 +997,6 @@ except Exception as error:
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No stale tables require analyzes to be done.")
-    printit ("Stale table statistics require analyzes to be evaluated=%d" % len(rows) )
 else:
     printit ("Big table analyzes to be evaluated=%d" % len(rows) )
 
@@ -1035,7 +1058,13 @@ for row in rows:
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            asyncjobs = asyncjobs + 1
+            
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, table)                                    
+            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             active_processes = active_processes + 1
@@ -1160,6 +1189,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1175,7 +1205,13 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            asyncjobs = asyncjobs + 1
+            
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, table)                                                
+            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_analyzes = total_analyzes + 1
@@ -1299,6 +1335,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1314,7 +1351,13 @@ for row in rows:
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            asyncjobs = asyncjobs + 1
+            
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            cmd = 'nohup psql -d %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, table)                                                            
+            
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums = total_vacuums + 1
@@ -1346,10 +1389,17 @@ if ignoreparts:
 if not dryrun:
     wait_for_processes(conn,cur)
 
-printit ("Total Vacuum Freeze: %d  Total Vacuum Analyze: %d  Total Vacuum: %d  Total Analyze: %d  Total Skipped Partitioned Tables: %d  Total Skipped Tables: %d  " % (total_freezes, total_vacuums_analyzes, total_vacuums, total_analyzes, partitioned_tables_skipped, tables_skipped + partitioned_tables_skipped))
+printit ("Vacuum Freeze: %d  Vacuum Analyze: %d  Total Vacuums: %d  Total Analyzes: %d  Skipped Partitioned Tables: %d  Total Skipped Tables: %d  Total Async Jobs: %d " \
+         % (total_freezes, total_vacuums_analyzes, total_vacuums, total_analyzes, partitioned_tables_skipped, tables_skipped + partitioned_tables_skipped, asyncjobs))
 rc = get_query_cnt(conn, cur)
 if rc > 0:
     printit ("NOTE: Current vacuums/analyzes still in progress: %d" % (rc))
+
+# v3.1 feature: show async jobs running
+#ps -ef | grep 'psql -h '| grep -v '\--color'
+psjobs = "ps -ef | grep 'psql -h %s'| grep -v '\--color'" % hostname
+#print ("psjobs = %s" % psjobs)
+
 
 # v 2.7 feature: if inquiry, then show results of 2 queries
 # print ("tables evaluated=%s" % tablist)
