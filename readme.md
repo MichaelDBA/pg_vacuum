@@ -40,7 +40,9 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-q --inquiry`      show stats to validate run.  Best used with dryrun. Values: "all" | "found" | not specified
 <br/>
-`-a --ignoreparts`  ignore partitioned tables
+`-i --ignoreparts`  ignore partitioned tables
+<br/>
+`-a --async`        run async jobs ignoring thresholds
 <br/>
 <br/>
 
