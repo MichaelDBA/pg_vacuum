@@ -43,6 +43,7 @@
 #                        Added application name to async jobs.  Lowered async threshold for max rows (threshold_async_rows) and max sync size (threshold_max_sync)
 # Jan.  12, 2021   V3.2: Fix nohup missing double quotes!
 # Jan.  26, 2021   V3.3: Add another parameter to do vacuums longer than x days, just like we do now for analyzes.
+#                        Also prevent multiple instances of this program to run against the same PG database.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -337,6 +338,22 @@ conn.set_isolation_level(0)
 
 # Open a cursor to perform database operation
 cur = conn.cursor()
+
+# Abort if a pg_vacuum instance is already running against this database.
+sql = "select count(*) from pg_stat_activity where application_name = 'pg_vacuum'"
+try:
+    cur.execute(sql)
+except Exception as error:
+    printit ("Unable to check for multiple pg_vacuum instances: %s" % (e))
+    conn.close()
+    sys.exit (1)
+
+rows = cur.fetchone()
+instances = int(rows[0])
+if instances > 1:
+    printit ("pg_vacuum instance(s) already running (%d). This instance will close now." % (instances))
+    conn.close()
+    sys.exit (1)
 
 # get version since 9.6 and earlier do not have a relispartition column in pg_class table
 # it will look something like this or this: 90618 or 100013, so anything greater than 100000 would be 10+ versions.
