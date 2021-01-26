@@ -26,7 +26,9 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-s --maxsize`      max table size that will be considered
 <br/>
-`-y --maxdays`      vacuums/analyzes older than max days will be considered
+`-y --maxdaysA`     Analyzes older than this will be considered
+<br/>
+`-x --maxdaysV`     Vacuums older than this will be considered
 <br/>
 `-t --mindeadtups`  minimum dead tups before considering a vacuum
 <br/>
