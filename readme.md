@@ -16,35 +16,35 @@ Program renamed from optimize_db.py to pg_vacuum.py (December 2020)
 ## Overview
 This program is useful to identify and vacuum tables.  Most inputs are optional, and either an optional parameter is not used or a default value is used if not provided.  That means you can override internal parameters by specifying them on the command line.  Here are the parameters:
 <br/>
-`-H --host`     host name
+`-H --host`              host name
 <br/>
-`-d --dbname`       database name
+`-d --dbname`            database name
 <br/>
-`-p --dbport`       database port
+`-p --dbport`            database port
 <br/>
-`-U --dbuser`       database user
+`-U --dbuser`            database user
 <br/>
-`-s --maxsize`      max table size that will be considered
+`-s --maxsize`           max table size that will be considered
 <br/>
-`-y --maxdaysA`     Analyzes older than this will be considered
+`-y --analyzemaxdays`    Analyzes older than this will be considered
 <br/>
-`-x --maxdaysV`     Vacuums older than this will be considered
+`-x --vacuummaxdays`     Vacuums older than this will be considered
 <br/>
-`-t --mindeadtups`  minimum dead tups before considering a vacuum
+`-t --mindeadtups`       minimum dead tups before considering a vacuum
 <br/>
-`-m --schema`       if provided, perform actions only on this schema
+`-m --schema`            if provided, perform actions only on this schema
 <br/>
-`-z --pctfreeze`    specifies how close to wraparound before FREEZE is done.
+`-z --pctfreeze`         specifies how close to wraparound before FREEZE is done.
 <br/>
-`-f --freeze`       perform freeze if necessary
+`-f --freeze`            perform freeze if necessary
 <br/>
-`-r --dryrun`       do a dry run for analysis before actually running it.
+`-r --dryrun`            do a dry run for analysis before actually running it.
 <br/>
-`-q --inquiry`      show stats to validate run.  Best used with dryrun. Values: "all" | "found" | not specified
+`-q --inquiry`           show stats to validate run.  Best used with dryrun. Values: "all" | "found" | not specified
 <br/>
-`-i --ignoreparts`  ignore partitioned tables
+`-i --ignoreparts`       ignore partitioned tables
 <br/>
-`-a --async`        run async jobs ignoring thresholds
+`-a --async`             run async jobs ignoring thresholds
 <br/>
 <br/>
 
