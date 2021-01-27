@@ -646,7 +646,7 @@ for row in rows:
     
     if part and ignoreparts:
         partcnt = partcnt + 1    
-        print ("ignoring partitioned table: %s" % table)
+        #print ("ignoring partitioned table: %s" % table)
         continue
 
     # check if we already processed this table
