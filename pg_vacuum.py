@@ -130,7 +130,6 @@ def highload():
         return False
     cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
-    print ("result=%s" % result)
     min1  = str(result.decode())
   
     loadn = int(float(min1))
