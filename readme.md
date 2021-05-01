@@ -56,6 +56,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 ## Assumptions
 1. Only when a table is within 25 million of reaching the wraparound threshold is it considered a FREEZE candidate. 
 2. By default, catalog tables are ignored unless specified explicitly with the --schema option.
+3. If passwords are required (authentication <> trust), then you must define credentials in the .pgpass (linux)/pgpass.conf (windows) files.
 <br/>
 
 ## Examples
