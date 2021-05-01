@@ -45,6 +45,7 @@
 # Jan.  26, 2021   V3.3: Add another parameter to do vacuums longer than x days, just like we do now for analyzes.
 #                        Also prevent multiple instances of this program to run against the same PG database.
 # Feb.  23, 2021   V3.4: Fix message for very old vacuums. and add min dead tups to > 0 --> vacuum(2) only at this time
+# March 01, 2021   V4.0: Conversion to Windows.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -67,7 +68,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '3.4  Feb. 23, 2021'
+version = '4.0  May 01, 2021'
 OK = 0
 BAD = -1
 
@@ -123,9 +124,15 @@ def get_process_cnt():
     return result
 
 def highload():
+    # V4 fix:
+    if sys.platform == 'win32':
+        printit ("High Load detection not available for Windows at the present time.")
+        return False
     cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
+    print ("result=%s" % result)
     min1  = str(result.decode())
+  
     loadn = int(float(min1))
     cmd = "cat /proc/cpuinfo | grep processor | wc -l"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
@@ -203,12 +210,16 @@ def wait_for_processes(conn,cur):
 ####################
 
 # Register the signal handler for CNTRL-C logic
-signal.signal(signal.SIGINT, signal_handler)
-signal.siginterrupt(signal.SIGINT, False)        
-# test interrupt
+if sys.platform != 'win32':
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.siginterrupt(signal.SIGINT, False)        
+else:
+    # v4 fix:
+    signal.signal(signal.SIGINT, signal_handler)
 #while True:
 #    print('Waiting...')
 #    time.sleep(5)
+#sys.exit(0)
 
 # Delay if high load encountered, give up after 30 minutes.
 cnt = 0
@@ -264,22 +275,23 @@ parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",      help="max pct unt
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
 parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry requested", choices=['all', 'found', ''], type=str, default="", metavar="INQUIRY")
 parser.add_argument("-i", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
-parser.add_argument("-a", "--async", dest="async",             help="run async jobs", default=False, action="store_true")
+parser.add_argument("-a", "--async", dest="async_",            help="run async jobs", default=False, action="store_true")
 
 args = parser.parse_args()
 
 dryrun      = False
 freeze      = False
 ignoreparts = False
-async       = False
+async_      = False
+
 if args.dryrun:
     dryrun = True
 if args.freeze:
     freeze = True;
 if args.ignoreparts:
     ignoreparts = True;    
-if args.async:
-    async = True;        
+if args.async_:
+    async_ = True;        
 if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
@@ -478,7 +490,7 @@ for row in rows:
           tables_skipped = tables_skipped + 1
           continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
-    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -662,7 +674,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
-    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -826,7 +838,7 @@ for row in rows:
         tablist.append(table)
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
-    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1234,7 +1246,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
-    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1391,7 +1403,7 @@ for row in rows:
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
-    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async:
+    #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
                 printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1461,6 +1473,14 @@ psjobs = "ps -ef | grep 'psql -h %s'| grep -v '\--color'" % hostname
 # print ("tables evaluated=%s" % tablist)
 if inquiry != '':
    if schema == "":
+      '''
+      SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,
+             pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, age(c.relfrozenxid) as xid_age,c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,
+             u.n_dead_tup::bigint AS dead_tup, coalesce(to_char(u.last_vacuum, 'YYYY-MM-DD'),'') as last_vacuum, coalesce(to_char(u.last_autovacuum, 'YYYY-MM-DD'),'') as last_autovacuum,
+             coalesce(to_char(u.last_analyze,'YYYY-MM-DD'),'') as last_analyze, coalesce(to_char(u.last_autoanalyze,'YYYY-MM-DD'),'') as last_autoanalyze 
+             FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname 
+             and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') order by 1;
+      '''
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
          "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, age(c.relfrozenxid) as xid_age,c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, " \
          "u.n_dead_tup::bigint AS dead_tup, coalesce(to_char(u.last_vacuum, 'YYYY-MM-DD'),'') as last_vacuum, coalesce(to_char(u.last_autovacuum, 'YYYY-MM-DD'),'') as last_autovacuum, " \
