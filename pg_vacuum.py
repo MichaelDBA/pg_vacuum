@@ -45,7 +45,7 @@
 # Jan.  26, 2021   V3.3: Add another parameter to do vacuums longer than x days, just like we do now for analyzes.
 #                        Also prevent multiple instances of this program to run against the same PG database.
 # Feb.  23, 2021   V3.4: Fix message for very old vacuums. and add min dead tups to > 0 --> vacuum(2) only at this time
-# March 01, 2021   V4.0: Conversion to Windows.
+# March 01, 2021   V4.0: Compatible with Windows.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
