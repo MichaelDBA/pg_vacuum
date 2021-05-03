@@ -61,7 +61,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 
 ## Examples
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 40000000 -y 10 -x 2  --mindeadtups 1000 --schema public --dryrun
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 40000000 -y 10 -x 2 -t 1000 --schema concept --ignoreparts --dryrun
 <br/><br/>
 pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -y 1 -t 1000 -m public --pctfreeze 90 --freeze
 <br/>
