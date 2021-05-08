@@ -50,6 +50,9 @@
 #                        Compare with >= dead tups not > dead tups.
 #                        Added date logic to vacuum determination logic
 # May   03 2021    V4.0  Added additional filter for vacuum(2) to consider dead tups.
+# May   08 2021    V4.1  Fixed case for vacuum/analyze branch where analyze value given for both analyze and vacuum max days.
+#                        Also had to replace > dead tups to >= dead tups for vacuum/analyze branch.
+#                        Also removed min size threshold for all cases
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -72,7 +75,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.0  May 03, 2021'
+version = '4.1  May 08, 2021'
 OK = 0
 BAD = -1
 
@@ -92,8 +95,10 @@ threshold_async_rows = 100000000
 # 400 GB threshold, above this table actions are deferred
 threshold_max_size = 400000000000
 
+# v 4.1 fix: no minimum, go by max only!
 # 50 MB minimum threshold
-threshold_min_size = 50000000
+#threshold_min_size = 50000000
+threshold_min_size = 0
 
 # 100 GB threshold, above this table actions are done asynchronously
 threshold_max_sync = 100000000000
@@ -320,7 +325,7 @@ if pctfreeze > 99 or pctfreeze < 10:
     printit("pctfreeze must range between 10 and 99.")
     sys.exit(1)
 
-# v4.0 fix: accept what the user says and don't override it
+# v4.1 fix: accept what the user says and don't override it
 # if min_dead_tups > 100:
 threshold_dead_tups = min_dead_tups
 
@@ -445,7 +450,7 @@ else:
 
 cnt = 0
 partcnt = 0
-action_name = 'VACUUM FREEZE'
+action_name = 'VAC/FREEZE'
 if not dryrun and len(rows) > 0 and not freeze:
     printit ('Bypassing VACUUM FREEZE action for %d tables. Otherwise specify "--freeze" to do them.' % len(rows))
 
@@ -482,14 +487,14 @@ for row in rows:
     pctmax = float(xidage) / float(maxage)
     # print("maxage=%10f  xidage=%10f  pctmax=%4f  pctfreeze=%4f" % (maxage, xidage, pctmax, pctfreeze))
     if (100 * pctmax) < float(pctfreeze):
-       printit ("Async %13s  %03d %-57s rows: %11d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
+       printit ("Async %10s  %03d %-57s rows: %11d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
                % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, 100 * pctmax))
        tables_skipped = tables_skipped + 1
        continue
 
        if size > threshold_max_size:
           # defer action
-          printit ("Async %13s  %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
+          printit ("Async %10s  %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
                   % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
           tables_skipped = tables_skipped + 1
           continue
@@ -497,16 +502,16 @@ for row in rows:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
             # v3.1 change to include application name
@@ -516,7 +521,7 @@ for row in rows:
             print(cmd)
             time.sleep(0.5)
             asyncjobs = asyncjobs + 1
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             rc = execute_cmd(cmd)
             total_freezes = total_freezes + 1
             tablist.append(table)
@@ -524,10 +529,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             sql = "VACUUM (FREEZE, VERBOSE) %s" % table
             time.sleep(0.5)
             try:
@@ -561,7 +566,7 @@ if freeze:
 -- > v10 or higher
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND
-(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup > 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
+(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
 
 -- v9.6 or lower
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
@@ -569,59 +574,59 @@ pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname
 u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  
 to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  
-and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup > 1000 AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND 
+and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= 1000 AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND 
 (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR 
 (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
 
 -- public schema only
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and and n.nspname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND
-(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup > 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
+(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
 
 '''
 
 if version > 100000:
     if schema == "":
-       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
       "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-      "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup > %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
+      "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "(now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_analyze)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
     else:
-       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
       "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and " \
       "c.relname = u.relname and u.schemaname = n.nspname  " \
-      "and (u.n_dead_tup > %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
+      "and (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "(now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_analyze)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
 else:
 # put version 9.x compatible query here
 #CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
     if schema == "":
-       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
       "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-      "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup > %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
+      "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "(now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_analyze)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
     else:
-       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
+      sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
       "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-      "and (u.n_dead_tup > %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
+      "and (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "(now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_analyze)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
 
       
 try:
@@ -639,7 +644,7 @@ else:
 
 cnt = 0
 partcnt = 0
-action_name = 'VAC/ANALYZE'
+action_name = 'VAC/ANALYZ'
 for row in rows:
     if active_processes > threshold_max_processes:
         # see how many are currently running and update the active processes again
@@ -673,7 +678,7 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
             tables_skipped = tables_skipped + 1
         continue
@@ -681,21 +686,21 @@ for row in rows:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 tablist.append(table)
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tablist.append(table)
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -711,11 +716,11 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM (ANALYZE, VERBOSE) %s" % table
             time.sleep(0.5)
             try:
@@ -855,7 +860,7 @@ for row in rows:
 
     if size > threshold_max_size:
         # defer action
-        printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+        printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
         tables_skipped = tables_skipped + 1
         tablist.append(table)
         continue
@@ -863,19 +868,19 @@ for row in rows:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -891,11 +896,11 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums  = total_vacuums + 1
             tablist.append(table)
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
             time.sleep(0.5)
             try:
@@ -987,11 +992,11 @@ for row in rows:
         continue
 
     if dryrun:
-        printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+        printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
         total_analyzes  = total_analyzes + 1
         tablist.append(table)
     else:
-        printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+        printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
         sql = "ANALYZE VERBOSE %s" % table
         time.sleep(0.5)
         total_analyzes  = total_analyzes + 1
@@ -1104,28 +1109,28 @@ for row in rows:
 
     if size > threshold_max_size:
         if dryrun:
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1
         else:
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1
         continue
     elif size > threshold_max_sync:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             active_processes = active_processes + 1
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
             asyncjobs = asyncjobs + 1
             
@@ -1140,11 +1145,11 @@ for row in rows:
             total_analyzes  = total_analyzes + 1
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
@@ -1264,26 +1269,26 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes = total_analyzes + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -1299,10 +1304,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
             try:
@@ -1325,7 +1330,7 @@ if ignoreparts:
 -- all
 -- v10 or higher
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and u.n_dead_tup > 1000 order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and u.n_dead_tup >= 1000 order by 4,1;
 
 -- v9.6 or lower
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
@@ -1334,12 +1339,12 @@ CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.in
 to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, 
 to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and 
 t.schemaname = n.nspname  and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND 
-now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup > 0 order by 4,1;
+now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 4,1;
 
 
 -- public schema
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup > 0 order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 4,1;
 '''
 # v 4.0 fix: >= dead tups, not > only
 if version > 100000:
@@ -1422,26 +1427,26 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %13s: %03d %-57s rows: %11d  dead: %8d  size: %10s :%13d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, dead, sizep, size))
+            printit ("Async %10s: %03d %-57s rows: %11d  dead: %8d  size: %10s :%13d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, dead, sizep, size))
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
         if dryrun:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums = total_vacuums + 1
             tablist.append(table)
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
-                printit ("%13s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
+                printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -1457,10 +1462,10 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
         else:
-            printit ("Sync  %13s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
             time.sleep(0.5)
             try:
