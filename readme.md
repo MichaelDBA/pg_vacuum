@@ -51,7 +51,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 ## Requirements
 1. python 2.7 or above
 2. python packages: psycopg2
-3. Works on Linux and Windows only.
+3. Works on Linux and Windows.
 <br/>
 
 ## Assumptions
