@@ -529,6 +529,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             time.sleep(0.5)
             asyncjobs = asyncjobs + 1
@@ -719,6 +720,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -901,6 +903,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
 
             time.sleep(0.5)
@@ -1154,6 +1157,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
@@ -1313,6 +1317,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
@@ -1473,6 +1478,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
+            tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
