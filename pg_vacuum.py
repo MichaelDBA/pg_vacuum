@@ -53,6 +53,7 @@
 # May   08 2021    V4.1  Fixed case for vacuum/analyze branch where analyze value given for both analyze and vacuum max days.
 #                        Also had to replace > dead tups to >= dead tups for vacuum/analyze branch.
 #                        Also removed min size threshold for all cases
+# June  02 2021    V4.1  Fixed signal handler, it was not exiting correctly.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -75,7 +76,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.1  May 08, 2021'
+version = '4.1  June 02, 2021'
 OK = 0
 BAD = -1
 
@@ -111,7 +112,15 @@ load_threshold = 250
 
 def signal_handler(signal, frame):
      printit('User-interrupted!')
-     sys.exit(1)
+     # sys.exit only creates an exception, it doesn't really exit!
+     #sys.exit(1)
+     if sys.platform == 'win32':
+         sys._exit(1)
+     else:
+         #For Linux:
+         os.kill(os.getpid(), signal.SIGINT)
+         sys._exit(1)
+         
      
 def printit(text):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
