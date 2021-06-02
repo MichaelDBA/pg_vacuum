@@ -54,6 +54,7 @@
 #                        Also had to replace > dead tups to >= dead tups for vacuum/analyze branch.
 #                        Also removed min size threshold for all cases
 # June  02 2021    V4.1  Fixed signal handler, it was not exiting correctly.
+#                        Fixed async call by escaping double quotes
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -526,8 +527,9 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, table)
-            print(cmd)
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')
+            cmd = 'nohup psql -d "%s" -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             time.sleep(0.5)
             asyncjobs = asyncjobs + 1
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
@@ -715,10 +717,12 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, table)            
-
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')
+            cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
+            print("rc=%d" % rc)
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             active_processes = active_processes + 1
@@ -895,7 +899,9 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, table)                        
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')            
+            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
 
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -1146,7 +1152,9 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, table)                                    
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')            
+            cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -1303,7 +1311,9 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, table)                                                
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')            
+            cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -1461,7 +1471,9 @@ for row in rows:
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
-            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, table)                                                            
+            # V4.1 fix, escape double quotes
+            tbl= table.replace('"', '\\"')            
+            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
             
             time.sleep(0.5)
             rc = execute_cmd(cmd)
