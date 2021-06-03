@@ -125,7 +125,7 @@ def signal_handler(signal, frame):
 
 def check_maxtables():
     if len(tablist) > threshold_max_tables:
-        printit ("Max Tables Reached: %d  Threshold=%d." % (len(tablist), threshold_max_tables))    
+        printit ("Max Tables Reached (%d). Consider increasing max tables." % (len(tablist)))    
         conn.close()
         sys.exit (1)
      
