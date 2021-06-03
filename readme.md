@@ -32,6 +32,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-t --mindeadtups`       minimum dead tups before considering a vacuum
 <br/>
+`-b --maxtables`         max number of tables to vacuum, default 9999
+<br/>
 `-m --schema`            if provided, perform actions only on this schema
 <br/>
 `-z --pctfreeze`         specifies how close to wraparound before FREEZE is done.
