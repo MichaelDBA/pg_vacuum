@@ -55,6 +55,7 @@
 #                        Also removed min size threshold for all cases
 # June  02 2021    V4.1  Fixed signal handler, it was not exiting correctly.
 #                        Fixed async call by escaping double quotes
+# June  03 2021    V4.1  Added new input, maxtables to restrict how much work we do.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -77,7 +78,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.1  June 02, 2021'
+version = '4.1  June 03, 2021'
 OK = 0
 BAD = -1
 
@@ -121,7 +122,12 @@ def signal_handler(signal, frame):
          #For Linux:
          os.kill(os.getpid(), signal.SIGINT)
          sys._exit(1)
-         
+
+def check_maxtables():
+    if len(tablist) > threshold_max_tables:
+        printit ("Max Tables Reached: %d  Threshold=%d." % (len(tablist), threshold_max_tables))    
+        conn.close()
+        sys.exit (1)
      
 def printit(text):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -262,22 +268,6 @@ asyncjobs = 0
 tablist = []
 
 # Setup up the argument parser
-# parser = OptionParser("PostgreSQL Vacumming Tool", add_help_option=False)
-'''
-# parser = OptionParser("PostgreSQL Vacumming Tool", add_help_option=True)
-parser.add_option("-r", "--dryrun", dest="dryrun",   help="dry run", default=False, action="store_true", metavar="DRYRUN")
-parser.add_option("-f", "--freeze", dest="freeze",   help="vacuum freeze directive", default=False, action="store_true", metavar="FREEZE")
-parser.add_option("-H", "--host",   dest="hostname", help="host name",      type=str, default="localhost",metavar="HOSTNAME")
-parser.add_option("-d", "--dbname", dest="dbname",   help="database name",  type=str, default="",metavar="DBNAME")
-parser.add_option("-U", "--dbuser", dest="dbuser",   help="database user",  type=str, default="postgres",metavar="DBUSER")
-parser.add_option("-m", "--schema",dest="schema",    help="schema",         type=str, default="",metavar="SCHEMA")
-parser.add_option("-p", "--dbport", dest="dbport",   help="database port",  type=int, default="5432",metavar="DBPORT")
-parser.add_option("-s", "--maxsize",dest="maxsize",  help="max table size", type=int, default=-1,metavar="MAXSIZE")
-parser.add_option("-y", "--maxdays",dest="maxdays",  help="max days",       type=int, default=5,metavar="MAXDAYS")
-iparser.add_option("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups", type=int, default=10000,metavar="MINDEADTUPS")
-parser.add_option("-q", "--inquiry", dest="inquiry", help="inquiry queries requested", type=str default="", metavar="INQUIRY")
-(options,args) = parser.parse_args()
-'''
 parser = argparse.ArgumentParser("PostgreSQL Vacumming Tool", add_help=True)
 parser.add_argument("-r", "--dryrun", dest="dryrun",           help="dry run",        default=False, action="store_true")
 parser.add_argument("-f", "--freeze", dest="freeze",           help="vacuum freeze directive", default=False, action="store_true")
@@ -294,6 +284,7 @@ parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tu
 parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry requested", choices=['all', 'found', ''], type=str, default="", metavar="INQUIRY")
 parser.add_argument("-i", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
 parser.add_argument("-a", "--async", dest="async_",            help="run async jobs", default=False, action="store_true")
+parser.add_argument("-b", "--maxtables",dest="maxtables",  help="max tables to process",  type=int, default=9999,metavar="MAXTABLES")
 
 args = parser.parse_args()
 
@@ -327,6 +318,7 @@ schema   = args.schema
 
 threshold_max_days_analyze = args.maxdaysA
 threshold_max_days_vacuum  = args.maxdaysV
+threshold_max_tables       = args.maxtables
 
 min_dead_tups = args.mindeadtups
 pctfreeze = args.pctfreeze
@@ -518,6 +510,10 @@ for row in rows:
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
             total_freezes = total_freezes + 1
             tablist.append(table)
+            check_maxtables()
+            if len(tablist) > threshold_max_tables:
+                printit ("Max Tables Reached: %d." % len(tablist))    
+                xxxxxxxxxxxxxxxxx
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
@@ -537,6 +533,7 @@ for row in rows:
             rc = execute_cmd(cmd)
             total_freezes = total_freezes + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
 
     else:
@@ -554,6 +551,7 @@ for row in rows:
                 continue
             total_freezes = total_freezes + 1
             tablist.append(table)            
+            check_maxtables()
 
 if ignoreparts:
     printit ("Partitioned table vacuum freezes bypassed=%d" % partcnt)
@@ -692,6 +690,7 @@ for row in rows:
         if dryrun:
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
@@ -701,15 +700,18 @@ for row in rows:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 tablist.append(table)
+                check_maxtables()
                 continue
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tablist.append(table)
+                check_maxtables()
                 tables_skipped = tables_skipped + 1
                 continue
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
@@ -727,6 +729,7 @@ for row in rows:
             print("rc=%d" % rc)
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
 
     else:
@@ -734,6 +737,7 @@ for row in rows:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
+            check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM (ANALYZE, VERBOSE) %s" % table
@@ -745,6 +749,7 @@ for row in rows:
                 continue            
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
+            check_maxtables()
 
 if ignoreparts:
     printit ("Partitioned table vacuum/analyzes bypassed=%d" % partcnt)
@@ -878,6 +883,7 @@ for row in rows:
         printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
         tables_skipped = tables_skipped + 1
         tablist.append(table)
+        check_maxtables()
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
     #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
@@ -888,6 +894,7 @@ for row in rows:
                 continue
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
         else:
@@ -911,12 +918,14 @@ for row in rows:
             total_vacuums  = total_vacuums + 1
             active_processes = active_processes + 1
             tablist.append(table)
+            check_maxtables()
 
     else:
         if dryrun:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums  = total_vacuums + 1
             tablist.append(table)
+            check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
@@ -928,6 +937,7 @@ for row in rows:
                 continue
             total_vacuums  = total_vacuums + 1
             tablist.append(table)
+            check_maxtables()
 
 if ignoreparts:
     printit ("Partitioned table vacuums bypassed=%d" % partcnt)
@@ -1013,12 +1023,14 @@ for row in rows:
         printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
         total_analyzes  = total_analyzes + 1
         tablist.append(table)
+        check_maxtables()
     else:
         printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
         sql = "ANALYZE VERBOSE %s" % table
         time.sleep(0.5)
         total_analyzes  = total_analyzes + 1
         tablist.append(table)
+        check_maxtables()
         try:
             cur.execute(sql)
         except Exception as error:
@@ -1143,6 +1155,7 @@ for row in rows:
             active_processes = active_processes + 1
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
+            check_maxtables()
         else:
             if active_processes > threshold_max_processes:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1150,6 +1163,7 @@ for row in rows:
                 continue
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -1169,9 +1183,11 @@ for row in rows:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
+            check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
             try:
@@ -1303,6 +1319,7 @@ for row in rows:
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_analyzes = total_analyzes + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
@@ -1324,12 +1341,14 @@ for row in rows:
             rc = execute_cmd(cmd)
             total_analyzes = total_analyzes + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
 
     else:
         if dryrun:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "ANALYZE VERBOSE %s" % table
@@ -1341,6 +1360,7 @@ for row in rows:
                 continue
             total_analyzes = total_analyzes + 1
             tablist.append(table)
+            check_maxtables()
 
 if ignoreparts:
     printit ("Very old partitioned table analyzes bypassed=%d" % partcnt)
@@ -1464,6 +1484,7 @@ for row in rows:
             printit ("Async %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             total_vacuums = total_vacuums + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
         else:
             if active_processes > threshold_max_processes:
@@ -1485,12 +1506,14 @@ for row in rows:
             rc = execute_cmd(cmd)
             total_vacuums = total_vacuums + 1
             tablist.append(table)
+            check_maxtables()
             active_processes = active_processes + 1
 
     else:
         if dryrun:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             tablist.append(table)
+            check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             sql = "VACUUM VERBOSE %s" % table
@@ -1503,6 +1526,7 @@ for row in rows:
 
             total_vacuums = total_vacuums + 1
             tablist.append(table)
+            check_maxtables()
 
 if ignoreparts:
     printit ("Very old partitioned table vacuums bypassed=%d" % partcnt)
