@@ -86,7 +86,6 @@ BAD = -1
 fmtrows  = '%11d'
 fmtbytes = '%13d'
 
-1,000,000,000,000
 #threshold for freezing tables: 25 million rows from wraparound
 threshold_freeze = 25000000
 
