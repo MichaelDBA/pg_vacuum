@@ -48,6 +48,9 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-a --async`             run async jobs ignoring thresholds
 <br/>
+`-n --nullsonly`         Only consider tables with no vacuum or analyze history
+<br/>
+
 <br/>
 
 ## Requirements
@@ -66,4 +69,6 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 40000000 -y 10 -x 2 -t 1000 --schema concept --ignoreparts --dryrun
 <br/><br/>
 pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -y 1 -t 1000 -m public --pctfreeze 90 --freeze
+<br/><br/>
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -n -b 300 -m public --ignoreparts
 <br/>
