@@ -402,6 +402,9 @@ version = int(rows[0])
 
 active_processes = 0
 
+# check action
+#select schemaname, relname from pg_stat_user_tables where (vacuum_count = 0) OR (GREATEST(last_vacuum, last_autovacuum) < now() - interval '20 day') order by 1,2;
+
 #################################
 # 1. Nulls Only                 #
 #################################
@@ -411,19 +414,19 @@ if nullsonly:
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
           "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
           "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
-          "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
+          "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
+          " u.vacuum_count, u.analyze_count " \
           "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') " \
           "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-          "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
-          "u.vacuum_count = 0 AND u.analyze_count = 0 order by 4,1" % (threshold_min_size)
+          "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1"
         else:
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
           "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
           "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
-          "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
+          "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
+          " u.vacuum_count, u.analyze_count " \
           "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and " \
-          "c.relname = u.relname and u.schemaname = n.nspname AND pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
-          "u.vacuum_count = 0 and u.analyze_count = 0 order by 4,1" % (schema, threshold_min_size)
+          "c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1" % (schema)
     else:
         if schema == "":
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
@@ -431,22 +434,21 @@ if nullsonly:
               "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) " \
               "where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, " \
               "to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
-              "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
+              "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
+              " u.vacuum_count, u.analyze_count " \
               "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
               "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-              "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
-              "u.vacuum_count = 0 and u.analyze_count = 0 order by 4,1" % (threshold_min_size)
+              "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1"
         else:
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
               "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
               "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) " \
               "where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
               "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
-              "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze  " \
+              "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, " \
+              " u.vacuum_count, u.analyze_count " \
               "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and " \
-              "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-              "and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
-              "u.vacuum_count = 0 and u.analyze_count = 0 order by 4,1" % (schema, threshold_min_size)
+              "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1" % (schema)
     try:
         cur.execute(sql)
     except Exception as error:
@@ -478,12 +480,27 @@ if nullsonly:
 
         cnt = cnt + 1
         table    = row[0]
-        sizep  = row[1]
-        size   = row[2]
-        tups   = row[3]
-        live   = row[4]
-        dead   = row[5]
-        part = row[6]  
+        sizep    = row[1]
+        size     = row[2]
+        tups     = row[3]
+        live     = row[4]
+        dead     = row[5]
+        part     = row[6]  
+        last_vac = row[7]  
+        last_avac= row[8]  
+        last_anl = row[9]  
+        last_aanl= row[10]  
+        vac_cnt  = int(row[11])
+        anal_cnt = int(row[12])
+        
+        if vac_cnt == 0 and anal_cnt == 0:
+            action_name = 'VAC/ANALYZ'
+        elif vac_cnt == 0 and anal_cnt > 0:
+            action_name = 'VACUUM'
+        elif vac_cnt > 0 and anal_cnt == 0:
+            action_name = 'ANALYZE'
+
+        #printit("DEBUG action=%s  vac=%d  anal=%d  table=%s" % (action_name, vac_cnt, anal_cnt, table))
         
         if part and ignoreparts:
             partcnt = partcnt + 1    
@@ -531,7 +548,15 @@ if nullsonly:
                 # V4.1 fix, escape double quotes
                 tbl= table.replace('"', '\\"')
                 tbl= tbl.replace('$', '\$')
-                cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
+
+                if vac_cnt == 0 and anal_cnt == 0:
+                    cmd = 'nohup psql -d "%s" -c "VACUUM ANALYZE %s" 2>/dev/null &' % (connparms, tbl)
+                    action_name = 'VAC/ANALYZ'
+                elif vac_cnt == 0 and anal_cnt > 0:
+                    cmd = 'nohup psql -d "%s" -c "VACUUM %s" 2>/dev/null &' % (connparms, tbl)
+                elif vac_cnt > 0 and anal_cnt == 0:
+                    cmd = 'nohup psql -d "%s" -c "ANALYZE %s" 2>/dev/null &' % (connparms, tbl)
+                
                 time.sleep(0.5)
                 rc = execute_cmd(cmd)
                 print("rc=%d" % rc)
@@ -548,7 +573,14 @@ if nullsonly:
                 check_maxtables()
             else:
                 printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-                sql = "VACUUM (ANALYZE, VERBOSE) %s" % table
+                
+                if vac_cnt == 0 and anal_cnt == 0:
+                    sql = "VACUUM ANALYZE %s" % table
+                elif vac_cnt == 0 and anal_cnt > 0:
+                    sql = "VACUUM %s" % table                
+                elif vac_cnt > 0 and anal_cnt == 0:
+                    sql = "ANALYZE %s" % table
+                    
                 time.sleep(0.5)
                 try:
                     cur.execute(sql)
