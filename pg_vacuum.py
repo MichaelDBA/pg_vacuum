@@ -58,6 +58,7 @@
 # June  03 2021    V4.1  Added new input, maxtables to restrict how much work we do.
 # June  11 2021    V4.1  Fixed VAC/ANALYZ branch where ORing condition caused actions even when dead tuple threshold specified.
 # June  22 2021    V4.2  Enhancement: nullsonly option where only vacuum/analyzes done on tables with no vacuum/analyze history.
+# June  23 2021    V4.2  Enhancement: add check option to get counts of objects that need vacuuming/analyzing
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -81,7 +82,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.2  June 22, 2021'
+version = '4.2  June 23, 2021'
 OK = 0
 BAD = -1
 
@@ -288,6 +289,7 @@ parser.add_argument("-i", "--ignoreparts", dest="ignoreparts", help="ignore part
 parser.add_argument("-a", "--async", dest="async_",            help="run async jobs", default=False, action="store_true")
 parser.add_argument("-b", "--maxtables",dest="maxtables",      help="max tables to process",  type=int, default=9999,metavar="MAXTABLES")
 parser.add_argument("-n", "--nullsonly", dest="nullsonly",     help="nulls only", default=False, action="store_true")
+parser.add_argument("-c", "--check", dest="check",             help="check vacuum metrics", default=False, action="store_true")
 
 args = parser.parse_args()
 
@@ -342,8 +344,9 @@ else:
     sys.exit(1)
 
 nullsonly = args.nullsonly
-printit ("version: %s  dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size:%d  pct freeze:%d nullsonly=%r" \
-        % (version, dryrun, inquiry, freeze, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_size, pctfreeze, nullsonly))
+checkstats = args.check
+printit ("version: %s  dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size:%d  pct freeze:%d nullsonly=%r check=%r" \
+        % (version, dryrun, inquiry, freeze, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_size, pctfreeze, nullsonly, checkstats))
 
 # printit ("Exiting program prematurely for debug purposes.")
 # sys.exit(0)
@@ -402,8 +405,104 @@ version = int(rows[0])
 
 active_processes = 0
 
-# check action
-#select schemaname, relname from pg_stat_user_tables where (vacuum_count = 0) OR (GREATEST(last_vacuum, last_autovacuum) < now() - interval '20 day') order by 1,2;
+#################################
+# Check Action Only             #
+#################################
+if checkstats:
+    '''      
+    select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1;
+    select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1;
+    select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum) < now() - interval '10 day' group by 1 order by 1;
+    select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1;
+    '''
+    sql = "select aa.no_vacuums, bb.no_analyzes, cc.old_vacuums as old_vacuums_10days, dd.old_analyzes as old_analyzes_20days FROM " \
+          "(select sum(foo.no_vacuums)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1) as foo) aa, " \
+          "(select sum(foo.no_analyzes)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1) as foo) bb, " \
+          "(select sum(foo.old_vacuums)  as old_vacuums  FROM (select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum)   < now() - interval '10 day' group by 1 order by 1) as foo) cc, " \
+          "(select sum(foo.old_analyzes) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; " 
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit("Check Stats Exception: %s *** %s" % (type(error), error))
+        conn.close()
+        sys.exit (1)     
+
+    rows = cur.fetchone()
+    no_vacuums   = rows[0]
+    no_analyzes  = rows[1]
+    old_vacuums  = rows[2]
+    old_analyzes = rows[3]
+    printit('')
+    printit("CheckStats  :  no vacuums(%d)   no analyzes(%d)   old vacuums(%d)   old_analyzes(%d)" % (no_vacuums, no_analyzes, old_vacuums, old_analyzes))
+    
+    # get individual schema counts
+    sql = "select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1"
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit("Check Stats Details1 Exception: %s *** %s" % (type(error), error))
+        conn.close()
+        sys.exit (1)         
+    rows = cur.fetchall()
+    cnt = 0
+    for row in rows:
+        cnt = cnt + 1
+        schema = row[0]
+        cnt    = row[1]
+        printit("No vacuums  : %20s  %4d" % (schema,cnt))
+
+    sql = "select schemaname, count(*) as no_analyzes   from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1"
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit("Check Stats Details2 Exception: %s *** %s" % (type(error), error))
+        conn.close()
+        sys.exit (1)         
+    rows = cur.fetchall()
+    cnt = 0
+    for row in rows:
+        cnt = cnt + 1
+        schema = row[0]
+        cnt    = row[1]
+        printit("No analyzes : %20s  %4d" % (schema,cnt))
+
+    sql = "select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum) < now() - interval '10 day' group by 1 order by 1"
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit("Check Stats Details3 Exception: %s *** %s" % (type(error), error))
+        conn.close()
+        sys.exit (1)         
+    rows = cur.fetchall()
+    cnt = 0
+    for row in rows:
+        cnt = cnt + 1
+        schema = row[0]
+        cnt    = row[1]
+        printit("old vacuums : %20s  %4d" % (schema,cnt))
+
+    sql = "select schemaname, count(*) as old_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1"
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit("Check Stats Details4 Exception: %s *** %s" % (type(error), error))
+        conn.close()
+        sys.exit (1)         
+    rows = cur.fetchall()
+    cnt = 0
+    for row in rows:
+        cnt = cnt + 1
+        schema = row[0]
+        cnt    = row[1]
+        printit("old analyzes: %20s  %4d" % (schema,cnt))
+
+
+    conn.close()
+    printit ("End of check stats action.  Closing the connection and exiting normally.")
+    sys.exit(0)
+
+
+
 
 #################################
 # 1. Nulls Only                 #
