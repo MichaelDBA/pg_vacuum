@@ -50,6 +50,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-n --nullsonly`         Only consider tables with no vacuum or analyze history
 <br/>
+`-c --check`             Only Check stats on tables
+<br/>
 
 <br/>
 
