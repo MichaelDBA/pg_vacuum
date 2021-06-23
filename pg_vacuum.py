@@ -345,6 +345,10 @@ else:
 
 nullsonly = args.nullsonly
 checkstats = args.check
+if nullsonly and checkstats:
+    printit('Invalid Parameters:  You can only select either "check" or "nullsonly", but not both.')
+    sys.exit(1)
+
 printit ("version: %s  dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size:%d  pct freeze:%d nullsonly=%r check=%r" \
         % (version, dryrun, inquiry, freeze, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_size, pctfreeze, nullsonly, checkstats))
 
@@ -416,10 +420,10 @@ if checkstats:
     select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1;
     '''
     sql = "select aa.no_vacuums, bb.no_analyzes, cc.old_vacuums as old_vacuums_10days, dd.old_analyzes as old_analyzes_20days FROM " \
-          "(select sum(foo.no_vacuums)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1) as foo) aa, " \
-          "(select sum(foo.no_analyzes)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1) as foo) bb, " \
-          "(select sum(foo.old_vacuums)  as old_vacuums  FROM (select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum)   < now() - interval '10 day' group by 1 order by 1) as foo) cc, " \
-          "(select sum(foo.old_analyzes) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; " 
+          "(select coalesce(sum(foo.no_vacuums), 0)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1) as foo) aa, " \
+          "(select coalesce(sum(foo.no_analyzes), 0)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1) as foo) bb, " \
+          "(select coalesce(sum(foo.old_vacuums), 0)  as old_vacuums  FROM (select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum)   < now() - interval '10 day' group by 1 order by 1) as foo) cc, " \
+          "(select coalesce(sum(foo.old_analyzes), 0) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; " 
     try:
         cur.execute(sql)
     except Exception as error:
@@ -428,6 +432,7 @@ if checkstats:
         sys.exit (1)     
 
     rows = cur.fetchone()
+    print (rows)
     no_vacuums   = rows[0]
     no_analyzes  = rows[1]
     old_vacuums  = rows[2]
@@ -444,6 +449,8 @@ if checkstats:
         conn.close()
         sys.exit (1)         
     rows = cur.fetchall()
+    if len(rows) == 0:
+        printit("no vacuums: None Found")
     cnt = 0
     for row in rows:
         cnt = cnt + 1
@@ -459,6 +466,8 @@ if checkstats:
         conn.close()
         sys.exit (1)         
     rows = cur.fetchall()
+    if len(rows) == 0:
+        printit("no analyzes: None Found")    
     cnt = 0
     for row in rows:
         cnt = cnt + 1
@@ -474,6 +483,8 @@ if checkstats:
         conn.close()
         sys.exit (1)         
     rows = cur.fetchall()
+    if len(rows) == 0:
+        printit("old vacuums: None Found")    
     cnt = 0
     for row in rows:
         cnt = cnt + 1
@@ -490,6 +501,8 @@ if checkstats:
         sys.exit (1)         
     rows = cur.fetchall()
     cnt = 0
+    if len(rows) == 0:
+        printit("old analyzes: None Found")
     for row in rows:
         cnt = cnt + 1
         schema = row[0]
@@ -517,7 +530,7 @@ if nullsonly:
           " u.vacuum_count, u.analyze_count " \
           "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') " \
           "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-          "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1"
+          "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 1,1"
         else:
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
           "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
@@ -525,7 +538,7 @@ if nullsonly:
           "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
           " u.vacuum_count, u.analyze_count " \
           "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and " \
-          "c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1" % (schema)
+          "c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 1,1" % (schema)
     else:
         if schema == "":
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
@@ -537,7 +550,7 @@ if nullsonly:
               " u.vacuum_count, u.analyze_count " \
               "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
               "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
-              "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1"
+              "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 1,1"
         else:
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
               "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
@@ -547,7 +560,7 @@ if nullsonly:
               "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, " \
               " u.vacuum_count, u.analyze_count " \
               "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and " \
-              "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 4,1" % (schema)
+              "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 1,1" % (schema)
     try:
         cur.execute(sql)
     except Exception as error:
@@ -876,7 +889,7 @@ if freeze:
 -- > v10 or higher
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND
-(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
+(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 1,1;
 
 -- v9.6 or lower
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
@@ -886,12 +899,12 @@ to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_aut
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  
 and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= 1000 AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND 
 (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 15 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 15) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR 
-(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
+(last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 1,1;
 
 -- public schema only
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and and n.nspname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND
-(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 4,1;
+(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > 50000000 AND u.n_dead_tup >= 1000 AND (now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR (last_vacuum IS NULL AND last_autovacuum IS NULL))) order by 1,1;
 
 '''
 
@@ -905,7 +918,7 @@ if version > 100000:
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
       "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= %d AND pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "((now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 1,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
     else:
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
@@ -915,7 +928,7 @@ if version > 100000:
       "c.relname = u.relname and u.schemaname = n.nspname  " \
       "and (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "((now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 1,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
 else:
 # put version 9.x compatible query here
 #CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
@@ -927,7 +940,7 @@ else:
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = n.nspname and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
       "and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "((now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 4,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 1,1" % (threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
     else:
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
@@ -936,7 +949,7 @@ else:
       "FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  " \
       "and (u.n_dead_tup >= %d AND   pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d AND " \
       "((now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d) OR ((last_analyze IS NULL AND last_autoanalyze IS NULL) OR " \
-      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 4,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
+      "(last_vacuum IS NULL AND last_autovacuum IS NULL)))) order by 1,1" % (schema, threshold_dead_tups, threshold_min_size, threshold_max_days_analyze, threshold_max_days_vacuum)
 
       
 try:
@@ -1067,7 +1080,7 @@ pg_total_relation_size(quote_ident(psut.schemaname) || '.' || quote_ident(psut.r
 (CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av
 FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname not in ('pg_catalog', 'pg_toast', 'information_schema') and 
 now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and
-(psut.n_dead_tup >= 0 OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 5 desc, 1;
+(psut.n_dead_tup >= 0 OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;
 
 -- public schema
 SELECT psut.schemaname || '.' || psut.relname as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum,  to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,
@@ -1077,7 +1090,7 @@ pg_total_relation_size(quote_ident(psut.schemaname) || '.' || quote_ident(psut.r
 (CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av
 FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname = 'public' and 
 now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and
-(psut.n_dead_tup >= 0 OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 5 desc, 1;
+(psut.n_dead_tup >= 0 OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;
 
 now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d
 " % (threshold_max_days_vacuum)
@@ -1094,7 +1107,7 @@ if version > 100000:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av  " \
       "FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
       "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
-      "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 5 desc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
+      "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
       "c.reltuples::bigint AS n_tup,  psut.n_dead_tup::bigint AS dead_tup, pg_size_pretty(pg_total_relation_size(quote_ident(psut.schemaname) || '.' || quote_ident(psut.relname))::bigint), " \
@@ -1103,7 +1116,7 @@ if version > 100000:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname = '%s' and " \
       "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
-      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 5 desc, 1;" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
+      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 1 asc, 1;" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
 else:
 # put version 9.x compatible query here
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
@@ -1117,7 +1130,7 @@ else:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class on psut.relid = pg_class.oid  where psut.schemaname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
       "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
-      "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 5 desc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
+      "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
       "pg_class.reltuples::bigint AS n_tup,  psut.n_dead_tup::bigint AS dead_tup, pg_size_pretty(pg_total_relation_size(quote_ident(psut.schemaname) || '.' || quote_ident(psut.relname))::bigint), " \
@@ -1128,7 +1141,7 @@ else:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class on psut.relid = pg_class.oid  where psut.schemaname = '%s' and " \
       "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
-      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 5 desc, 1;" \
+      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 1 asc, 1;" \
       % (schema, threshold_max_days_vacuum, threshold_dead_tups)
       
 try:
@@ -1508,12 +1521,12 @@ if ignoreparts:
 '''
 -- v11+  all
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1;
 
 
 -- v11+  public schema
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1;
 
 -- v10- all
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
@@ -1521,7 +1534,7 @@ pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname
 to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  
 to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname 
 not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname 
-not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1;
+not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1;
 
 '''
 
@@ -1532,14 +1545,14 @@ if version > 100000:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1"
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1" % (schema)
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1" % (schema)
 else:
 # put version 9.x compatible query here  
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
@@ -1549,14 +1562,14 @@ else:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1"
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
-      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 4,1" % (schema)
+      "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1" % (schema)
 try:
     cur.execute(sql)
 except Exception as error:
@@ -1674,7 +1687,7 @@ if ignoreparts:
 -- all
 -- v10 or higher
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and u.n_dead_tup >= 1000 order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and u.n_dead_tup >= 1000 order by 1,1;
 
 -- v9.6 or lower
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
@@ -1683,12 +1696,12 @@ CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.in
 to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, 
 to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and 
 t.schemaname = n.nspname  and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND 
-now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 4,1;
+now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 1,1;
 
 
 -- public schema
 SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze
-FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 4,1;
+FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 1,1;
 '''
 # v 4.0 fix: >= dead tups, not > only
 if version > 100000:
@@ -1698,13 +1711,13 @@ if version > 100000:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 4,1" % (threshold_max_days_vacuum, threshold_dead_tups)
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
-      "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 4,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
+      "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
 else:
 # put version 9.x compatible query here
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
@@ -1714,13 +1727,13 @@ else:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 4,1" % (threshold_max_days_vacuum, threshold_dead_tups)
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
-      "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 4,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
+      "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
       
 try:
      cur.execute(sql)
