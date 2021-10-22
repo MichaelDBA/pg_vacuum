@@ -73,4 +73,14 @@ pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 40000000 -y 1
 pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -y 1 -t 1000 -m public --pctfreeze 90 --freeze
 <br/><br/>
 pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -n -b 300 -m public --ignoreparts
+<br/><br/>
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 --check --ignoreparts --dryrun
+<br/><br/>
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 --nullsonly --ignoreparts --dryrun
 <br/>
+
+
+
+
+
+
