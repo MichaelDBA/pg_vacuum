@@ -2,7 +2,7 @@
 
 This python program determines whether a vacuum/analyze/freeze should be done and if so, which one.
 
-(c) 2018-2021 SQLEXEC LLC
+(c) 2018-2022 SQLEXEC LLC
 <br/>
 GNU V3 and MIT licenses are conveyed accordingly.
 <br/>
