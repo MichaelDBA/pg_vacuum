@@ -60,6 +60,7 @@
 # June  22 2021    V4.2  Enhancement: nullsonly option where only vacuum/analyzes done on tables with no vacuum/analyze history.
 # June  23 2021    V4.2  Enhancement: add check option to get counts of objects that need vacuuming/analyzing
 # July  01 2021    V4.3  Fix: change/add branch logic for size of relation was backwards.  > input instead of < input for maxsize and some did not use max relation size at all
+# July  06 2022    V4.4  Fix: large table analysis was wrong, used less than instead of greater than
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -83,7 +84,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.3  July 01, 2021'
+version = '4.4  July 06, 2022'
 OK = 0
 BAD = -1
 
@@ -1382,6 +1383,7 @@ case when c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100)
 
 '''
 # V4.3 fix: use max size of relation not min size
+# 44.4 fix: use greater than not less than
 if version > 100000:
     if schema == "":
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || " \
@@ -1390,7 +1392,7 @@ if version > 100000:
       "from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
       "t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and  " \
       "u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') and ((last_analyze is null and last_autoanalyze is null) or (now()::date  - last_analyze::date > %d AND  " \
-      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <=  %d order by 1,2;" % \
+      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) >  %d order by 1,2;" % \
       (threshold_max_days_analyze,threshold_max_days_analyze, threshold_max_size)
     else:
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || " \
@@ -1398,7 +1400,7 @@ if version > 100000:
       "case when c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100) END as tupdiff, now()::date  - last_analyze::date as lastanalyzed2 " \
       "from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and  " \
       "u.schemaname = n.nspname and ((last_analyze is null and last_autoanalyze is null) or (now()::date  - last_analyze::date > %d AND  " \
-      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2;" % \
+      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d order by 1,2;" % \
       (schema, threshold_max_days_analyze,threshold_max_days_analyze, threshold_max_size)
 else:
 # put version 9.x compatible query here
@@ -1411,7 +1413,7 @@ else:
       "from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
       "t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and  " \
       "u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') and ((last_analyze is null and last_autoanalyze is null) or (now()::date  - last_analyze::date > %d AND  " \
-      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2;" % \
+      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d order by 1,2;" % \
       (threshold_max_days_analyze,threshold_max_days_analyze, threshold_max_size)
     else:
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || " \
@@ -1420,7 +1422,7 @@ else:
       "case when c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100) END as tupdiff, now()::date  - last_analyze::date as lastanalyzed2 " \
       "from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and  " \
       "u.schemaname = n.nspname and ((last_analyze is null and last_autoanalyze is null) or (now()::date  - last_analyze::date > %d AND  " \
-      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2;" % \
+      "now()::date - last_autoanalyze::date > %d)) and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) > %d order by 1,2;" % \
       (schema, threshold_max_days_analyze,threshold_max_days_analyze, threshold_max_size)
 
 try:
