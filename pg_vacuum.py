@@ -61,6 +61,7 @@
 # June  23 2021    V4.2  Enhancement: add check option to get counts of objects that need vacuuming/analyzing
 # July  01 2021    V4.3  Fix: change/add branch logic for size of relation was backwards.  > input instead of < input for maxsize and some did not use max relation size at all
 # July  06 2022    V4.4  Fix: large table analysis was wrong, used less than instead of greater than
+# July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -84,7 +85,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.4  July 06, 2022'
+version = '4.5  July 12, 2022'
 OK = 0
 BAD = -1
 
@@ -285,7 +286,7 @@ parser.add_argument("-s", "--maxsize",dest="maxsize",          help="max table s
 parser.add_argument("-y", "--analyzemaxdays" ,dest="maxdaysA", help="Analyze max days", type=int, default=60,metavar="ANALYZEMAXDAYS")
 parser.add_argument("-x", "--vacuummaxdays"  ,dest="maxdaysV", help="Vacuum  max days", type=int, default=30,metavar="VACUUMMAXDAYS")
 parser.add_argument("-z", "--pctfreeze",dest="pctfreeze",      help="max pct until wraparoun", type=int, default=90, metavar="PCTFREEZE")
-parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=10000,metavar="MINDEADTUPS")
+parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",  help="min dead tups",  type=int, default=1000,metavar="MINDEADTUPS")
 parser.add_argument("-q", "--inquiry", dest="inquiry",         help="inquiry requested", choices=['all', 'found', ''], type=str, default="", metavar="INQUIRY")
 parser.add_argument("-i", "--ignoreparts", dest="ignoreparts", help="ignore partition tables", default=False, action="store_true")
 parser.add_argument("-a", "--async", dest="async_",            help="run async jobs", default=False, action="store_true")
@@ -411,39 +412,40 @@ version = int(rows[0])
 
 active_processes = 0
 
+
 #################################
 # Check Action Only             #
 #################################
 if checkstats:
     '''      
-    select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1;
-    select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1;
+    V.4.5 Fix: add autovacuum and autoanalyze counts
+    select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1;
+    select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1;
     select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum) < now() - interval '10 day' group by 1 order by 1;
     select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1;
     '''
     sql = "select aa.no_vacuums, bb.no_analyzes, cc.old_vacuums as old_vacuums_10days, dd.old_analyzes as old_analyzes_20days FROM " \
-          "(select coalesce(sum(foo.no_vacuums), 0)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1) as foo) aa, " \
-          "(select coalesce(sum(foo.no_analyzes), 0)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1) as foo) bb, " \
+          "(select coalesce(sum(foo.no_vacuums), 0)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1) as foo) aa, " \
+          "(select coalesce(sum(foo.no_analyzes), 0)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1) as foo) bb, " \
           "(select coalesce(sum(foo.old_vacuums), 0)  as old_vacuums  FROM (select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum)   < now() - interval '10 day' group by 1 order by 1) as foo) cc, " \
           "(select coalesce(sum(foo.old_analyzes), 0) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; " 
+         
     try:
         cur.execute(sql)
     except Exception as error:
         printit("Check Stats Exception: %s *** %s" % (type(error), error))
         conn.close()
         sys.exit (1)     
-
     rows = cur.fetchone()
-    print (rows)
     no_vacuums   = rows[0]
     no_analyzes  = rows[1]
     old_vacuums  = rows[2]
     old_analyzes = rows[3]
-    printit('')
+
     printit("CheckStats  :  no vacuums(%d)   no analyzes(%d)   old vacuums(%d)   old_analyzes(%d)" % (no_vacuums, no_analyzes, old_vacuums, old_analyzes))
     
     # get individual schema counts
-    sql = "select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 group by 1 order by 1"
+    sql = "select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1"
     try:
         cur.execute(sql)
     except Exception as error:
@@ -460,7 +462,7 @@ if checkstats:
         cnt    = row[1]
         printit("No vacuums  : %20s  %4d" % (schema,cnt))
 
-    sql = "select schemaname, count(*) as no_analyzes   from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 group by 1 order by 1"
+    sql = "select schemaname, count(*) as no_analyzes   from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1"
     try:
         cur.execute(sql)
     except Exception as error:
@@ -469,7 +471,7 @@ if checkstats:
         sys.exit (1)         
     rows = cur.fetchall()
     if len(rows) == 0:
-        printit("no analyzes: None Found")    
+        printit("No analyzes : %20s  %4d" % ('None Found',0))    
     cnt = 0
     for row in rows:
         cnt = cnt + 1
