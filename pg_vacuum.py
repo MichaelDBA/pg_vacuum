@@ -62,6 +62,7 @@
 # July  01 2021    V4.3  Fix: change/add branch logic for size of relation was backwards.  > input instead of < input for maxsize and some did not use max relation size at all
 # July  06 2022    V4.4  Fix: large table analysis was wrong, used less than instead of greater than
 # July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
+# July  25 2022    V4.6  Enhancement: Make it work for MACs (darwin)
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -159,15 +160,25 @@ def highload():
     if sys.platform == 'win32':
         printit ("High Load detection not available for Windows at the present time.")
         return False
-    cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
+    elif sys.platform == 'darwin':
+        # V4.6
+        cmd = "uptime | awk '{print $(NF-2)}'"
+    else:    
+        cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     min1  = str(result.decode())
-  
     loadn = int(float(min1))
-    cmd = "cat /proc/cpuinfo | grep processor | wc -l"
+    
+    if sys.platform == 'darwin':
+        # V4.6
+        cmd = "sysctl -a | grep machdep.cpu.thread_count | awk '{print $2}'"
+    else:    
+        cmd = "cat /proc/cpuinfo | grep processor | wc -l"
+    
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     cpus  = str(result.decode())
     cpusn = int(float(cpus))
+    
     load = (loadn / cpusn) * 100
     if load < load_threshold:
         return False
