@@ -86,7 +86,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.5  July 12, 2022'
+version = '4.6  July 25, 2022'
 OK = 0
 BAD = -1
 
