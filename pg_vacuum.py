@@ -63,6 +63,7 @@
 # July  06 2022    V4.4  Fix: large table analysis was wrong, used less than instead of greater than
 # July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
 # July  25 2022    V4.6  Enhancement: Make it work for MACs (darwin)
+# Sept. 02 2022    V4.7  Allow users to not provide hostname, instead of defaulting to localhost
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -86,7 +87,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.6  July 25, 2022'
+version = '4.7  September 02, 2022'
 OK = 0
 BAD = -1
 
@@ -288,7 +289,7 @@ tablist = []
 parser = argparse.ArgumentParser("PostgreSQL Vacumming Tool", add_help=True)
 parser.add_argument("-r", "--dryrun", dest="dryrun",           help="dry run",        default=False, action="store_true")
 parser.add_argument("-f", "--freeze", dest="freeze",           help="vacuum freeze directive", default=False, action="store_true")
-parser.add_argument("-H", "--host",   dest="hostname",         help="host name",      type=str, default="localhost",metavar="HOSTNAME")
+parser.add_argument("-H", "--host",   dest="hostname",         help="host name",      type=str, default="",metavar="HOSTNAME")
 parser.add_argument("-d", "--dbname", dest="dbname",           help="database name",  type=str, default="",metavar="DBNAME")
 parser.add_argument("-U", "--dbuser", dest="dbuser",           help="database user",  type=str, default="postgres",metavar="DBUSER")
 parser.add_argument("-m", "--schema",dest="schema",            help="schema",         type=str, default="",metavar="SCHEMA")
@@ -372,7 +373,12 @@ printit ("version: %s  dryrun(%r) inquiry(%s) freeze(%r) ignoreparts(%r) host:%s
 # Connect
 # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
 # connstr = "dbname=%s port=%d user=%s host=%s password=postgrespass" % (dbname, dbport, dbuser, hostname )
-connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+# v4.7 fix for ident cases, ie, no hostname provided, even localhost
+if hostname == '': 
+    connstr = "dbname=%s port=%d user=%s application_name=%s" % (dbname, dbport, dbuser, 'pg_vacuum' )
+else:
+    connstr = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
+
 try:
     conn = psycopg2.connect(connstr)
 except Exception as error:
