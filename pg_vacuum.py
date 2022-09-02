@@ -1,3 +1,4 @@
+#!/usr/bin/env python2
 #!/usr/bin/env python3
 #!/usr/bin/env python2
 ##################################################################################################
@@ -63,7 +64,7 @@
 # July  06 2022    V4.4  Fix: large table analysis was wrong, used less than instead of greater than
 # July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
 # July  25 2022    V4.6  Enhancement: Make it work for MACs (darwin)
-# Sept. 02 2022    V4.7  Allow users to not provide hostname, instead of defaulting to localhost
+# Sept. 02 2022    V4.7  Allow users to not provide hostname, instead of defaulting to localhost. Also, fix vacuums where dead tups provided found tables, but not greater than max days so ignored!
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -1120,6 +1121,8 @@ now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d
 # v4.0 fix: >= dead tups not just > dead tups
 # v4.0 fix: also add max days for vacuum to where condition
 # V4.3 fix: also add max relation size to the filter
+# V4.7 fix: Use ORing condition for max days and dead tuples not ANDing
+
 if version > 100000:
     if schema == "":
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
@@ -1128,7 +1131,7 @@ if version > 100000:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples), '9G999G999G999') AS av_threshold, CASE WHEN CAST(current_setting('autovacuum_vacuum_threshold') AS bigint) + " \
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av  " \
       "FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
       "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
@@ -1137,7 +1140,7 @@ if version > 100000:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples), '9G999G999G999') AS av_threshold, CASE WHEN CAST(current_setting('autovacuum_vacuum_threshold') AS bigint) + " \
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname = '%s' and " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
       "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 1 asc, 1;" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
 else:
 # put version 9.x compatible query here
@@ -1151,7 +1154,7 @@ else:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples), '9G999G999G999') AS av_threshold, CASE WHEN CAST(current_setting('autovacuum_vacuum_threshold') AS bigint) + " \
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class on psut.relid = pg_class.oid  where psut.schemaname not in ('pg_catalog', 'pg_toast', 'information_schema') and " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
       "(psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)) ORDER BY 1 asc, 1;" % (threshold_max_days_vacuum, threshold_dead_tups)
     else:
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
@@ -1162,7 +1165,7 @@ else:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples), '9G999G999G999') AS av_threshold, CASE WHEN CAST(current_setting('autovacuum_vacuum_threshold') AS bigint) + " \
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * pg_class.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class on psut.relid = pg_class.oid  where psut.schemaname = '%s' and " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d AND " \
+      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
       "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 1 asc, 1;" \
       % (schema, threshold_max_days_vacuum, threshold_dead_tups)
       
