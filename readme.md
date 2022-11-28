@@ -52,6 +52,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-c --check`             Only Check stats on tables
 <br/>
+`-v --verbose`           Used primarily for debugging
+<br/>
 
 <br/>
 
