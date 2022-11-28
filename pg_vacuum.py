@@ -65,6 +65,8 @@
 # July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
 # July  25 2022    V4.6  Enhancement: Make it work for MACs (darwin)
 # Sept. 02 2022    V4.7  Allow users to not provide hostname, instead of defaulting to localhost. Also, fix vacuums where dead tups provided found tables, but not greater than max days so ignored!
+# Nov.  28 2022    V4.8  Enable verbose parm for debugging purposes.  Also fix schema constraint that does not work in all cases. 
+#                        Also enable vacuum in parallel for PG V13+ up to max maintenenance parallel workers. Also fixed user-interrupted termination error.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -88,7 +90,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '4.7  September 02, 2022'
+version = '4.8  November 28, 2022'
 OK = 0
 BAD = -1
 
@@ -121,6 +123,11 @@ threshold_max_processes = 12
 # load threshold, wait for a time if very high
 load_threshold = 250
 
+# PG v13+ enable parallel vacuuming for indexes > 130000
+bParallel = False 
+parallelworkers = 0
+parallelstatement = 'DISABLE_PAGE_SKIPPING FALSE'
+
 def signal_handler(signal, frame):
      printit('User-interrupted!')
      # sys.exit only creates an exception, it doesn't really exit!
@@ -129,8 +136,14 @@ def signal_handler(signal, frame):
          sys._exit(1)
      else:
          #For Linux:
-         os.kill(os.getpid(), signal.SIGINT)
-         sys._exit(1)
+         # v4.8 fix
+         #os.kill(os.getpid(), signal.SIGINT)
+         # --> Exception: <type 'exceptions.AttributeError'> *** 'int' object has no attribute 'SIGINT'
+         #os.kill(os.getpid(), signal.SIGTERM)
+         # --> Exception: <type 'exceptions.AttributeError'> *** 'int' object has no attribute 'SIGTERM'
+         #sys._exit(1)
+         # --> AttributeError: 'module' object has no attribute '_exit'
+         exit(1)
 
 def check_maxtables():
     if len(tablist) > threshold_max_tables:
@@ -152,7 +165,7 @@ def execute_cmd(text):
     return rc
 
 def get_process_cnt():
-    cmd = "ps -ef | grep 'VACUUM VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
+    cmd = "ps -ef | grep 'VACUUM (VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     result = int(result.decode('ascii'))
     return result
@@ -211,7 +224,7 @@ def getload():
 '''
 
 def get_query_cnt(conn, cur):
-    sql = "select count(*) from pg_stat_activity where state = 'active' and application_name = 'pg_vacuum' and query like 'VACUUM FREEZE VERBOSE%' OR query like 'VACUUM ANALYZE VERBOSE%' OR query like 'VACUUM VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
+    sql = "select count(*) from pg_stat_activity where state = 'active' and application_name = 'pg_vacuum' and query like 'VACUUM FREEZE VERBOSE%' OR query like 'VACUUM (ANALYZE VERBOSE%' OR query like 'VACUUM (VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
     cur.execute(sql)
     rows = cur.fetchone()
     return int(rows[0])
@@ -306,6 +319,7 @@ parser.add_argument("-a", "--async", dest="async_",            help="run async j
 parser.add_argument("-b", "--maxtables",dest="maxtables",      help="max tables to process",  type=int, default=9999,metavar="MAXTABLES")
 parser.add_argument("-n", "--nullsonly", dest="nullsonly",     help="nulls only", default=False, action="store_true")
 parser.add_argument("-c", "--check", dest="check",             help="check vacuum metrics", default=False, action="store_true")
+parser.add_argument("-v", "--verbose", dest="verbose",        help="verbose/debug mode", default=False, action="store_true")
 
 args = parser.parse_args()
 
@@ -360,6 +374,7 @@ else:
     sys.exit(1)
 
 nullsonly = args.nullsonly
+_verbose = args.verbose
 checkstats = args.check
 if nullsonly and checkstats:
     printit('Invalid Parameters:  You can only select either "check" or "nullsonly", but not both.')
@@ -427,9 +442,22 @@ except Exception as error:
 
 rows = cur.fetchone()
 version = int(rows[0])
+if version > 130000: 
+    bParallel = True
+    sql = "show max_parallel_maintenance_workers"
+    try:
+        cur.execute(sql)
+    except Exception as error:
+        printit ("Unable to get max parallel maintenance workers: %s" % (e))
+        conn.close()
+        sys.exit (1)
 
+    rows = cur.fetchone()
+    parallelworkers = int(rows[0])
+    parallelstatement = 'PARALLEL ' + str(parallelworkers)
+
+if _verbose: printit("VERBOSE MODE: PG Version: %s  Parallel:%r  Max Parallel Maintenance Workers: %d  Parallel clause: %s" % (version, bParallel, parallelworkers, parallelstatement))
 active_processes = 0
-
 
 #################################
 # Check Action Only             #
@@ -442,6 +470,7 @@ if checkstats:
     select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum) < now() - interval '10 day' group by 1 order by 1;
     select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1;
     '''
+    if _verbose: printit("VERBOSE MODE: Check Action Only branch")
     sql = "select aa.no_vacuums, bb.no_analyzes, cc.old_vacuums as old_vacuums_10days, dd.old_analyzes as old_analyzes_20days FROM " \
           "(select coalesce(sum(foo.no_vacuums), 0)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1) as foo) aa, " \
           "(select coalesce(sum(foo.no_analyzes), 0)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1) as foo) bb, " \
@@ -543,6 +572,7 @@ if checkstats:
 # 1. Nulls Only                 #
 #################################
 if nullsonly:
+    if _verbose: printit("VERBOSE MODE: Nulls Only branch")
     if version > 100000:
         if schema == "":
           sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
@@ -678,16 +708,16 @@ if nullsonly:
             
                 # v3.1 change to include application name
                 connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
-                # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+                # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
                 # V4.1 fix, escape double quotes
                 tbl= table.replace('"', '\\"')
                 tbl= tbl.replace('$', '\$')
 
                 if vac_cnt == 0 and anal_cnt == 0:
-                    cmd = 'nohup psql -d "%s" -c "VACUUM ANALYZE %s" 2>/dev/null &' % (connparms, tbl)
+                    cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
                     action_name = 'VAC/ANALYZ'
                 elif vac_cnt == 0 and anal_cnt > 0:
-                    cmd = 'nohup psql -d "%s" -c "VACUUM %s" 2>/dev/null &' % (connparms, tbl)
+                    cmd = 'nohup psql -d "%s" -c "VACUUM (%s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
                 elif vac_cnt > 0 and anal_cnt == 0:
                     cmd = 'nohup psql -d "%s" -c "ANALYZE %s" 2>/dev/null &' % (connparms, tbl)
                 
@@ -709,9 +739,9 @@ if nullsonly:
                 printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
                 
                 if vac_cnt == 0 and anal_cnt == 0:
-                    sql = "VACUUM ANALYZE %s" % table
+                    sql = "VACUUM (ANALYZE, %s) %s" % (parallelstatement, table)
                 elif vac_cnt == 0 and anal_cnt > 0:
-                    sql = "VACUUM %s" % table                
+                    sql = "VACUUM (%s) %s" % (parallelstatement, table)
                 elif vac_cnt > 0 and anal_cnt == 0:
                     sql = "ANALYZE %s" % table
                     
@@ -748,6 +778,7 @@ SELECT n.nspname || '.' || c.relname as table, c.reltuples::bigint as rows, age(
 CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose,
 pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty, pg_total_relation_size(c.oid) as table_size, c.relispartition FROM pg_class c, pg_namespace n WHERE n.nspname = 'public' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < 25000000 ORDER BY age(c.relfrozenxid) DESC LIMIT 60;
 '''
+if _verbose: printit("VERBOSE MODE: (2) Freeze section")
 if version > 100000:
     if schema == "":
        sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
@@ -904,6 +935,8 @@ if freeze:
 #    older than threshold date OR (dead tups greater than threshold and table size greater than threshold min size)
 #################################
 
+if _verbose: printit("VERBOSE MODE: (3) Vacuum/Analyze section")
+
 # V2.3: Fixed query date problem
 #V 2.4 Fix, needed to add logic to check for null timestamps!
 '''
@@ -1054,11 +1087,11 @@ for row in rows:
             
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
-            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
             tbl= tbl.replace('$', '\$')
-            cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
+            cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             print("rc=%d" % rc)
@@ -1075,7 +1108,7 @@ for row in rows:
             check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            sql = "VACUUM (ANALYZE, VERBOSE) %s" % table
+            sql = "VACUUM (ANALYZE, VERBOSE, %s) %s" % (parallelstatement, table)
             time.sleep(0.5)
             try:
                 cur.execute(sql)
@@ -1122,6 +1155,7 @@ now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d
 # v4.0 fix: also add max days for vacuum to where condition
 # V4.3 fix: also add max relation size to the filter
 # V4.7 fix: Use ORing condition for max days and dead tuples not ANDing
+if _verbose: printit("VERBOSE MODE: (4) Vacuum query section")
 
 if version > 100000:
     if schema == "":
@@ -1140,8 +1174,8 @@ if version > 100000:
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples), '9G999G999G999') AS av_threshold, CASE WHEN CAST(current_setting('autovacuum_vacuum_threshold') AS bigint) + " \
       "(CAST(current_setting('autovacuum_vacuum_scale_factor') AS numeric) * c.reltuples) < psut.n_dead_tup THEN '*' ELSE '' END AS expect_av " \
       "FROM pg_stat_user_tables psut JOIN pg_class c on psut.relid = c.oid  where psut.schemaname = '%s' and " \
-      "now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
-      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null))) ORDER BY 1 asc, 1;" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
+      "(now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d OR " \
+      "((psut.n_dead_tup >= %d OR (last_vacuum is null and last_autovacuum is null)))) ORDER BY 1 asc, 1;" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
 else:
 # put version 9.x compatible query here
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
@@ -1245,11 +1279,11 @@ for row in rows:
             
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
-            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
             tbl= tbl.replace('$', '\$')
-            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
+            cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
 
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -1266,7 +1300,7 @@ for row in rows:
             check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" %  (action_name, cnt, table, tups, sizep, size, dead))
-            sql = "VACUUM VERBOSE %s" % table
+            sql = "VACUUM (VERBOSE, %s) %s" % (parallelstatement, table)
             time.sleep(0.5)
             try:
                 cur.execute(sql)
@@ -1294,6 +1328,7 @@ pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) 
 select n.nspname || '.' || c.relname as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname))::bigint),  pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as size, c.relispartition, u.last_analyze, u.last_autoanalyze, case when c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100) END as tupdiff, now()::date  - last_analyze::date as lastanalyzed2 from pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = 'public' and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 and
 pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= 50000000 order by 1,2;
 '''
+if _verbose: printit("VERBOSE MODE: (5) Analyze Small Tables section")
 if version > 100000:
     if schema == "":
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' ||  " \
@@ -1406,6 +1441,8 @@ case when c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100)
 '''
 # V4.3 fix: use max size of relation not min size
 # 44.4 fix: use greater than not less than
+if _verbose: printit("VERBOSE MODE: (6) Analyze Big Tables section")
+
 if version > 100000:
     if schema == "":
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || " \
@@ -1580,7 +1617,7 @@ not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nsp
 not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1;
 
 '''
-
+if _verbose: printit("VERBOSE MODE: (7) Catchall analyze query section")
 if version > 100000:
     if schema == "":
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
@@ -1748,6 +1785,7 @@ FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.reln
 '''
 # v 4.0 fix: >= dead tups, not > only
 # V4.3 fix: also add max relation size to the filter
+if _verbose: printit("VERBOSE MODE: (8) Catchall vacuum query section")
 if version > 100000:
     if schema == "":
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
@@ -1853,11 +1891,11 @@ for row in rows:
             
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
-            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
+            # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')            
             tbl= tbl.replace('$', '\$')
-            cmd = 'nohup psql -d "%s" -c "VACUUM VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
+            cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
             
             time.sleep(0.5)
             rc = execute_cmd(cmd)
@@ -1873,7 +1911,7 @@ for row in rows:
             check_maxtables()
         else:
             printit ("Sync  %10s: %03d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
-            sql = "VACUUM VERBOSE %s" % table
+            sql = "VACUUM (VERBOSE, %s) %s" % (parallelstatement, table)
             time.sleep(0.5)
             try:
                 cur.execute(sql)
