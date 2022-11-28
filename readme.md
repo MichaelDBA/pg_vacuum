@@ -14,7 +14,7 @@ The first version of this program was created in 2018.
 Program renamed from optimize_db.py to pg_vacuum.py (December 2020)
 
 ## Overview
-This program is useful to identify and vacuum tables.  Most inputs are optional, and either an optional parameter is not used or a default value is used if not provided.  That means you can override internal parameters by specifying them on the command line.  Here are the parameters:
+This program is useful to identify and vacuum tables.  Most inputs are optional, and either an optional parameter is not used or a default value is used if not provided.  That means you can override internal parameters by specifying them on the command line.  The latest version of pg_vacuum incorporates parallel vacuuming if maintenance workers are available.  Here are the parameters:
 <br/>
 `-H --host`              host name
 <br/>
