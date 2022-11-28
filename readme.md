@@ -61,6 +61,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 1. python 2.7 or above
 2. python packages: psycopg2
 3. Works on Linux and Windows.
+4. PostgreSQL versions 9.6 and up
 <br/>
 
 ## Assumptions
