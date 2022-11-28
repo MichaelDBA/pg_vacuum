@@ -2031,3 +2031,4 @@ if inquiry != '':
 conn.close()
 printit ("Closed the connection and exiting normally.")
 sys.exit(0)
+
