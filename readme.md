@@ -24,7 +24,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-U --dbuser`            database user
 <br/>
-`-s --maxsize`           max table size that will be considered
+`-s --maxsize`           max table size that will be considered (default, 400GB)
 <br/>
 `-y --analyzemaxdays`    Analyzes older than this will be considered
 <br/>
@@ -32,7 +32,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-t --mindeadtups`       minimum dead tups before considering a vacuum
 <br/>
-`-b --maxtables`         max number of tables to vacuum, default 9999
+`-b --maxtables`         max number of tables to vacuum (default 9999)
 <br/>
 `-m --schema`            if provided, perform actions only on this schema
 <br/>
@@ -68,22 +68,31 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 1. Only when a table is within 25 million of reaching the wraparound threshold is it considered a FREEZE candidate. 
 2. By default, catalog tables are ignored unless specified explicitly with the --schema option.
 3. If passwords are required (authentication <> trust), then you must define credentials in the .pgpass (linux)/pgpass.conf (windows) files.
+4. The less parameters you supply, the more wide-open the vacuum operation, i.e., more tables qualify
 <br/>
 
 ## Examples
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 40000000 -y 10 -x 2 -t 1000 --schema concept --ignoreparts --dryrun
+`Vacuum all tables that don't have any vacuums/analyzes. Only do tables less that 100MB in size. Bypass partitioned tables. Dryrun first.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly --ignoreparts --dryrun
 <br/><br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -y 1 -t 1000 -m public --pctfreeze 90 --freeze
+`Same as before but only do it for the first 50 tables.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50
 <br/><br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 -n -b 300 -m public --ignoreparts
+`Same as before but only do it for a specific schema.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50 --schema concept
 <br/><br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 --check --ignoreparts --dryrun
+`Vacuum tables that haven't been vacuumed in 10 days, 20 days for analyzes. Dryrun first.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 --dryrun
 <br/><br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 400000000000 --nullsonly --ignoreparts --dryrun
-<br/>
-
-
-
-
+`Vacuum tables that have more than 1000 dead tuples and haven't been vacuumed in 20 days. Dryrun first.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 -t 1000 --dryrun
+<br/><br/>
+`Run a check to get the overall status of vacuuming in the database.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --check
+<br/><br/>
+`Vacuum Freeze tables that are at the 90% threshold for transaction wrap-around to kick in.`
+pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --pctfreeze 90 --freeze --dryrun
+<br/><br/>
+<br/><br/>
 
 
