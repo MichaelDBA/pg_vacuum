@@ -72,26 +72,26 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 
 ## Examples
-`Vacuum all tables that don't have any vacuums/analyzes. Only do tables less that 100MB in size. Bypass partitioned tables. Dryrun first.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly --ignoreparts --dryrun
+Vacuum all tables that don't have any vacuums/analyzes. Only do tables less that 100MB in size. Bypass partitioned tables. Dryrun first.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly --ignoreparts --dryrun`
 <br/><br/>
-`Same as before but only do it for the first 50 tables.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50
+Same as before but only do it for the first 50 tables.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50`
 <br/><br/>
-`Same as before but only do it for a specific schema.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50 --schema concept
+Same as before but only do it for a specific schema.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --nullsonly --ignoreparts --dryrun -b 50 --schema concept`
 <br/><br/>
-`Vacuum tables that haven't been vacuumed in 10 days, 20 days for analyzes. Dryrun first.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 --dryrun
+Vacuum tables that haven't been vacuumed in 10 days, 20 days for analyzes. Dryrun first.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 --dryrun`
 <br/><br/>
-`Vacuum tables that have more than 1000 dead tuples and haven't been vacuumed in 20 days. Dryrun first.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 -t 1000 --dryrun
+Vacuum tables that have more than 1000 dead tuples and haven't been vacuumed in 20 days. Dryrun first.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 -x 20 -y 20 -t 1000 --dryrun`
 <br/><br/>
-`Run a check to get the overall status of vacuuming in the database.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --check
+Run a check to get the overall status of vacuuming in the database.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --check`
 <br/><br/>
-`Vacuum Freeze tables that are at the 90% threshold for transaction wrap-around to kick in.`<br/>
-pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --pctfreeze 90 --freeze --dryrun
+Vacuum Freeze tables that are at the 90% threshold for transaction wrap-around to kick in.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --pctfreeze 90 --freeze --dryrun`
 <br/><br/>
 <br/><br/>
 
