@@ -133,7 +133,7 @@ load_threshold = 250
 bParallel = False 
 parallelworkers = 0
 
-#v4.9 fix: DISABLE PAGE SKIPPING Followed by boolean is not valid pre PG v12
+#v5.0 fix: DISABLE PAGE SKIPPING Followed by boolean is not valid pre PG v12
 if pgversion > 120000:
     parallelstatement = 'DISABLE_PAGE_SKIPPING FALSE'
 else:
@@ -740,14 +740,14 @@ if nullsonly:
                 tbl= tbl.replace('$', '\$')
 
                 if vac_cnt == 0 and anal_cnt == 0:
-                    # v4.9 fix: handle empty parallelstatement string
+                    # v5.0 fix: handle empty parallelstatement string
                     if parallelstatement == '':
                         cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE) %s" 2>/dev/null &' % (connparms, tbl)
                     else:
                         cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
                     action_name = 'VAC/ANALYZ'
                 elif vac_cnt == 0 and anal_cnt > 0:
-                    # v4.9 fix: handle empty parallelstatement string
+                    # v5.0 fix: handle empty parallelstatement string
                     if parallelstatement == '':
                         cmd = 'nohup psql -d "%s" -c "VACUUM %s" 2>/dev/null &' % (connparms, tbl)
                     else:
@@ -773,13 +773,13 @@ if nullsonly:
                 printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
                 
                 if vac_cnt == 0 and anal_cnt == 0:
-                    # v4.9 fix: handle empty parallelstatement string
+                    # v5.0 fix: handle empty parallelstatement string
                     if parallelstatement == '':
                         sql = "VACUUM (ANALYZE) %s" % (table)
                     else:
                         sql = "VACUUM (ANALYZE, %s) %s" % (parallelstatement, table)
                 elif vac_cnt == 0 and anal_cnt > 0:
-                    # v4.9 fix: handle empty parallelstatement string
+                    # v5.0 fix: handle empty parallelstatement string
                     if parallelstatement == '':
                         sql = "VACUUM  %s" % (table)
                     else:
@@ -1007,7 +1007,7 @@ ORDER BY 1;
 
 '''
 # V4.3 fix: relation size < instead of > maxsize!
-# V4.9 fix: New logic regarding vacuuming/analyzing. We don't consider null vacuum/analyze timestamps anymore
+# V5.0 fix: New logic regarding vacuuming/analyzing. We don't consider null vacuum/analyze timestamps anymore
 if pgversion > 100000:
     if schema == "":
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
@@ -1188,7 +1188,7 @@ if ignoreparts:
 # v4.0 fix: also add max days for vacuum to where condition
 # V4.3 fix: also add max relation size to the filter
 # V4.7 fix: Use ORing condition for max days and dead tuples not ANDing
-# V4.9 fix: New logic regarding vacuuming/analyzing. We don't consider null vacuum/analyze timestamps anymore
+# V5.0 fix: New logic regarding vacuuming/analyzing. We don't consider null vacuum/analyze timestamps anymore
 if _verbose: printit("VERBOSE MODE: (4) Vacuum query section")
 
 if pgversion > 100000:
@@ -1997,7 +1997,7 @@ psjobs = "ps -ef | grep 'psql -h %s'| grep -v '\--color'" % hostname
 
 # v 2.7 feature: if inquiry, then show results of 2 queries
 # print ("tables evaluated=%s" % tablist)
-# v4.9: fix query so materialized views show up as well (eliminated join to pg_tables)
+# v5.0: fix query so materialized views show up as well (eliminated join to pg_tables)
 if inquiry != '':
    if schema == "":
       '''
