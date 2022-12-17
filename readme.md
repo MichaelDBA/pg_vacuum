@@ -72,10 +72,11 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 
 ## Vacuuming Best Practices
-Once you have your autovacuum tuned for your specific SQL workload, it is usually good to combine that with some nightly cronjobs to take some of the load off of the autovacuum daemon. The following 2 pg_vacuum.py jobs might be good to run on a nightly basis:<br/>
+Once you have your autovacuum tuned for your specific SQL workload, it is usually good to combine that with some nightly cronjobs to take some of the load off of the autovacuum daemon. The following 2 pg_vacuum.py jobs are an example of one setup to run on a nightly basis:<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly`<br/>
-`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 -x2 -y 10 -t 10000`
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 -x2 -y 20 -t 10000`
 <br/><br/>
+Basically, always check for tables without vacuums and analyzes.  This can happen on newly created tables or after a PG service crashed, invalidating all the vacuum stats.  The second job just makes sure we do vacuuming at least every 2 days if dead tuples has reached out maximum.  Do analyzes for tables that haven't been analyzed in the last 20 days.
 
 
 ## Examples
