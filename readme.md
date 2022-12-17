@@ -71,6 +71,13 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 4. The less parameters you supply, the more wide-open the vacuum operation, i.e., more tables qualify
 <br/>
 
+## Vacuuming Best Practices
+Once you have your autovacuum tuned for your specific SQL workload, it is usually good to combine that with some nightly cronjobs to take some of the load off of the autovacuum daemon. The following 2 pg_vacuum.py jobs might be good to run on a nightly basis:<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly`
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 -x2 -y 10 -t 10000`
+<br/><br/>
+
+
 ## Examples
 Vacuum all tables that don't have any vacuums/analyzes. Only do tables less that 100MB in size. Bypass partitioned tables. Dryrun first.<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly --ignoreparts --dryrun`
