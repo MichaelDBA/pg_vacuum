@@ -38,6 +38,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-a --async`             run async jobs ignoring thresholds
 <br/>
+`-m --schema`            if provided, perform actions only on this schema
+<br/>
 `-c --check`             Only Check stats on tables
 <br/>
 `-r --dryrun`            do a dry run for analysis before actually running it.
@@ -45,8 +47,6 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 `-q --inquiry`           show stats to validate run.  Best used with dryrun. Values: "all" | "found"
 <br/>
 `-v --verbose`           Used primarily for debugging
-<br/>
-`-m --schema`            if provided, perform actions only on this schema
 <br/>
 `-e --autotune`          specifies percentage value to use in vacuuming (range: 0.00001 to 0.2)
 <br/>
@@ -71,7 +71,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 
 ## Vacuuming Best Practices
-Once you have your autovacuum tuned for your specific SQL workload, it is usually good to combine that with some nightly cronjobs to take some of the load off of the autovacuum daemon. The following 2 pg_vacuum.py jobs are an example of one setup to run on a nightly basis:<br/>
+Once you have your autovacuum tuned for your specific SQL workload, it is usually good to combine that with some nightly cronjobs to take some of the load off of the autovacuum daemon. The following 2 pg_vacuum.py jobs are an example of one setup to run on a nightly basis in which the 1st one checks for tables with no history of vacuums or analyzes and the 2nd one does them based on how long since the previous ones were done and perhaps on n_dead_tups/n_mod_since_analyze thresholds:<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly`<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 -x2 -y 20 -t 10000`
 <br/><br/>
