@@ -1,6 +1,6 @@
 # pg_vacuum
 
-This python program determines whether a vacuum/analyze/freeze should be done and if so, which one.
+This python program does  vacuum/analyze/freeze actions on tables and materialized views based on the user inputs provided.
 
 (c) 2018-2022 SQLEXEC LLC
 <br/>
@@ -34,27 +34,26 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-b --maxtables`         max number of tables to vacuum (default 9999)
 <br/>
-`-m --schema`            if provided, perform actions only on this schema
-<br/>
-`-z --pctfreeze`         specifies how close to wraparound before FREEZE is done.
-<br/>
-`-f --freeze`            perform freeze if necessary
-<br/>
-`-r --dryrun`            do a dry run for analysis before actually running it.
-<br/>
-`-q --inquiry`           show stats to validate run.  Best used with dryrun. Values: "all" | "found" | not specified
-<br/>
 `-i --ignoreparts`       ignore partitioned tables
 <br/>
 `-a --async`             run async jobs ignoring thresholds
 <br/>
-`-n --nullsonly`         Only consider tables with no vacuum or analyze history
-<br/>
 `-c --check`             Only Check stats on tables
+<br/>
+`-r --dryrun`            do a dry run for analysis before actually running it.
+<br/>
+`-q --inquiry`           show stats to validate run.  Best used with dryrun. Values: "all" | "found"
 <br/>
 `-v --verbose`           Used primarily for debugging
 <br/>
-
+`-m --schema`            if provided, perform actions only on this schema
+<br/>
+`-e --autotune`          specifies percentage value to use in vacuuming (range: 0.00001 to 0.2)
+<br/>
+`-f --freeze`            perform freeze in percentage provided if near the wraparound threshold (range: 10 - 99)
+<br/>
+`-n --nullsonly`         Only consider tables with no vacuum or analyze history
+<br/>
 <br/>
 
 ## Requirements
