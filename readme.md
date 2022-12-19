@@ -32,6 +32,8 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-t --mindeadtups`       minimum dead tups before considering a vacuum
 <br/>
+`-z --minmodanalyzed`    minimum mod since analyzed tups before considering an analyze
+<br/>
 `-b --maxtables`         max number of tables to vacuum (default 9999)
 <br/>
 `-i --ignoreparts`       ignore partitioned tables
