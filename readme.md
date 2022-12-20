@@ -50,7 +50,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-v --verbose`           Used primarily for debugging
 <br/>
-`-e --autotune`          specifies percentage value to use in vacuuming (range: 0.00001 to 0.2)
+`-e --autotune`          specifies scale_factor to use for both vaccums and analyzes (range: 0.00001 to 0.2)
 <br/>
 `-f --freeze`            perform freeze in percentage provided if near the wraparound threshold (range: 10 - 99)
 <br/>
