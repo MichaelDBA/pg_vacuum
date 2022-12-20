@@ -312,8 +312,7 @@ def _inquiry(conn,cur,tablist):
 	and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') order by 1;
 	'''
 	if schema == "":
-		# sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, " \
-		sql = "SELECT u.schemaname || '.' || u.relname  as table, " \
+		sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, " \
 					"pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
 					"pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, " \
 					"age(c.relfrozenxid) as xid_age," \
@@ -327,8 +326,7 @@ def _inquiry(conn,cur,tablist):
 					"FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = u.schemaname and u.relname = c.relname and u.relid = c.oid and c.relkind in ('r','m','p') " \
 					"and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') order by 1"
 	else:
-		#sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table,  " \
-		sql = "SELECT u.schemaname || '.' || u.relname  as table,  " \
+		sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table,  " \
 					 "pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
 					 "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size,  " \
 					 "age(c.relfrozenxid) as xid_age,  " \
@@ -1150,7 +1148,7 @@ if bautotune:
 	if pgversion < 130000:	
 	  # earlier versions do not have n_ins_since_vacuum column
 		if schema == "":
-			sql = "SELECT t.schemaname || '.' || t.relname atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
+			sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
 						"round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
@@ -1160,7 +1158,7 @@ if bautotune:
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
 						"WHERE n.nspname =  t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "
 		else:
-			sql = "SELECT t.schemaname || '.' || t.relname atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
+			sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
 						"round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
@@ -1171,7 +1169,7 @@ if bautotune:
 						"WHERE n.nspname =  %s AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
 	else:	  
 		if schema == "":
-			sql = "SELECT t.schemaname || '.' || t.relname atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
+			sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
 						"round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
@@ -1181,7 +1179,7 @@ if bautotune:
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
 						"WHERE n.nspname =  t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "
 		else:
-			sql = "SELECT t.schemaname || '.' || t.relname atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
+			sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
 						"round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
@@ -1346,8 +1344,6 @@ FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.
 AND (u.n_dead_tup >= -1 AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > -1 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > -1 
 OR (-1 = -1 AND -1 = -1 AND -1 = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL)) 
 ORDER BY 1;
-
-
 -- all < 10
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  
 pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  
