@@ -81,6 +81,7 @@ Basically, always check for tables without vacuums and analyzes.  This can happe
 
 
 ## Examples
+*NOTE: all examples shown are in --dryrun mode since this is a best practice before actually running the command.*<br/>
 Vacuum all tables that don't have any vacuums/analyzes. Only do tables less that 100MB in size. Bypass partitioned tables. Dryrun first.<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres --maxsize 1000000000 --nullsonly --ignoreparts --dryrun`
 <br/><br/>
@@ -102,6 +103,8 @@ Run a check to get the overall status of vacuuming in the database.<br/>
 Vacuum Freeze tables that are at the 90% threshold for transaction wrap-around to kick in.<br/>
 `pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --pctfreeze 90 --freeze --dryrun`
 <br/><br/>
+Vacuum/analyze tables whose dead tups/tups since analyzed > threshold factor.<br/>
+`pg_vacuum.py -H localhost -d testing -p 5432 -U postgres -s 1000000000 --autotune 0.1 --dryrun`
 <br/><br/>
 
 
