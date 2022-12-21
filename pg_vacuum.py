@@ -74,6 +74,7 @@
 #                        If only vacuum days provided, and no deadtups provided, proceed only if days qualifies
 #                        If only deadtups provided, then proceed only if deadtups qualifies, ignore null vacuums/analyzes
 #                        If neither days nor deadtups provided, then vacuum everything
+# Dec.  21 2022    V5.1  Change maxsize parameter expected value unit from bytes to Gigabytes GB.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -121,7 +122,7 @@ threshold_dead_tups = 1000
 threshold_async_rows = 100000000
 
 # 400 GB threshold, above this table actions are deferred
-threshold_max_size = 400000000000
+threshold_max_size = 429496729600
 
 # v 4.1 fix: no minimum, go by max only!
 # 50 MB minimum threshold
@@ -436,7 +437,7 @@ parser.add_argument("-d", "--dbname", dest="dbname",                help="databa
 parser.add_argument("-U", "--dbuser", dest="dbuser",                help="database user",     type=str, default="postgres",metavar="DBUSER")
 parser.add_argument("-m", "--schema",dest="schema",                 help="schema",            type=str, default="",metavar="SCHEMA")
 parser.add_argument("-p", "--dbport", dest="dbport",                help="database port",     type=int, default="5432",metavar="DBPORT")
-parser.add_argument("-s", "--maxsize",dest="maxsize",               help="max table size",    type=int, default=-1,metavar="MAXSIZE")
+parser.add_argument("-s", "--maxsize",dest="maxsize",               help="max table size in Gbytes",    type=int, default=-1,metavar="MAXSIZE")
 parser.add_argument("-y", "--analyzemaxdays" ,dest="maxdaysA",      help="Analyze max days",  type=int, default=-1,metavar="ANALYZEMAXDAYS")
 parser.add_argument("-x", "--vacuummaxdays"  ,dest="maxdaysV",      help="Vacuum  max days",  type=int, default=-1,metavar="VACUUMMAXDAYS")
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",       help="min dead tups",     type=int, default=-1,metavar="MINDEADTUPS")
@@ -473,8 +474,8 @@ if args.dbname == "":
 
 # if args.maxsize != -1:
 if args.maxsize != -1:
-    # use user-provided max instead of program default (300 GB)
-        threshold_max_size = args.maxsize
+    # use user-provided max instead of program default (400 GB)
+    threshold_max_size = 1073741824 * args.maxsize
 
 dbname   = args.dbname
 hostname = args.hostname
@@ -546,8 +547,8 @@ else:
         printit('autotune range must be > 0.00001 and < 0.2.  Value provided = %f' % autotune)
         sys.exit(1)
 
-printit ("version: %s  dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size:%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
-        % (version, dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_size, freeze, nullsonly, autotune, checkstats))
+printit ("version: %s  dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size(GB/bytes):%d/%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
+        % (version, dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, args.maxsize, threshold_max_size, freeze, nullsonly, autotune, checkstats))
 
 # Connect
 # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
