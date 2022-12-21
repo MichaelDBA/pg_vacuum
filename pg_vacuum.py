@@ -1167,7 +1167,7 @@ if bautotune:
 						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, -1 ins_since_vac, c.relkind, " \
 						"GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,	GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze  " \
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
-						"WHERE n.nspname =  %s AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
+						"WHERE n.nspname = '%s' AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
 	else:	  
 		if schema == "":
 			sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
@@ -1188,7 +1188,7 @@ if bautotune:
 						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, t.n_ins_since_vacuum  ins_since_vac, c.relkind, " \
 						"GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,	GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze  " \
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
-						"WHERE n.nspname =  %s AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
+						"WHERE n.nspname = '%s' AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
 	try:
 			 cur.execute(sql)
 	except Exception as error:
