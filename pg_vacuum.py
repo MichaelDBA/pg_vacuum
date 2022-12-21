@@ -1164,7 +1164,7 @@ if bautotune:
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze > 0 THEN 100.00 ELSE round((t.n_mod_since_analyze::numeric / t.n_live_tup::numeric),5) END pct_analyze,  " \
-						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, -1 ins_since_vac, c.relkind " \
+						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, -1 ins_since_vac, c.relkind, " \
 						"GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,	GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze  " \
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
 						"WHERE n.nspname =  %s AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
@@ -1185,7 +1185,7 @@ if bautotune:
 						"CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,  " \
 						"round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,  " \
 						"CASE WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze > 0 THEN 100.00 ELSE round((t.n_mod_since_analyze::numeric / t.n_live_tup::numeric),5) END pct_analyze,  " \
-						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, t.n_ins_since_vacuum  ins_since_vac, c.relkind " \
+						"t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, t.n_ins_since_vacuum  ins_since_vac, c.relkind, " \
 						"GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,	GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze  " \
 						"FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
 						"WHERE n.nspname =  %s AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
