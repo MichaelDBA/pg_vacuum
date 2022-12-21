@@ -1273,8 +1273,8 @@ if bautotune:
 
 			if size > threshold_max_size:
 				# defer action
-				printit ("Async %10s  %04d %-57s rows: %11d size: %10s :%13d  NOTICE: Skipping large table.  Do manually." \
-								% (action_name, cnt, table, tups, sizep, size))
+				printit ("Async %10s  %04d %-57s rows: %11d size: %10s :%13d dead: %10d analyzed: %10d  NOTICE: Skipping large table.  Do manually." \
+								% (action_name, cnt, table, tups, sizep, size, deadtups, mod_since_ana))
 				tables_skipped = tables_skipped + 1
 				cnt = cnt - 1
 				continue
@@ -1285,7 +1285,7 @@ if bautotune:
 									tables_skipped = tables_skipped + 1
 									cnt = cnt - 1
 									continue
-							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d " % (action_name, cnt, table, tups, sizep, size))
+							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %10d analyzed: %10d" % (action_name, cnt, table, tups, sizep, size, deadtups, mod_since_ana))
 							tablist.append(table)
 							check_maxtables()
 							if len(tablist) > threshold_max_tables:
@@ -1304,7 +1304,7 @@ if bautotune:
 							cmd = 'nohup psql -d "%s" -c "%s %s" 2>/dev/null &' % (connparms, sql2, tbl)
 							time.sleep(0.5)
 							asyncjobs = asyncjobs + 1
-							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %10d analyzed: %10d" % (action_name, cnt, table, tups, sizep, size, deadtups, mod_since_ana))
 							rc = execute_cmd(cmd)
 							tablist.append(table)
 							check_maxtables()
@@ -1312,9 +1312,9 @@ if bautotune:
 			else:
 					if dryrun:
 						tablist.append(table)
-						printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+						printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %10d analyzed: %10d" % (action_name, cnt, table, tups, sizep, size, deadtups, mod_since_ana))
 					else:
-						printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d" % (action_name, cnt, table, tups, sizep, size))
+						printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %10d analyzed: %10d" % (action_name, cnt, table, tups, sizep, size, deadtups, mod_since_ana))
 						sql = "%s %s" % (sql2, table)
 						time.sleep(0.5)
 					try:
@@ -1352,7 +1352,8 @@ if _verbose: printit("VERBOSE MODE: (5) Vacuum/Analyze section")
 -- all >10+
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
 pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, 
-u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, 
+u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze,
+c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, 
 to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, 
 CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END 
 FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') 
@@ -1362,7 +1363,7 @@ ORDER BY 1;
 -- all < 10
 SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  
 pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  
-u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  
+u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint AS since_analyzed, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  
 to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  
 CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END, now()::date - GREATEST(last_analyze, last_autoanalyze)::date 
 FROM pg_namespace n, pg_class c, pg_stat_user_tables u where n.oid = c.relnamespace AND c.relkind in ('r','m','p') AND c.relname = u.relname and n.nspname = u.schemaname
@@ -1377,7 +1378,7 @@ if pgversion > 100000:
     if schema == "":
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
-      "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
+      "u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
       "CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END " \
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid AND u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
@@ -1387,7 +1388,7 @@ if pgversion > 100000:
     else:
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
-      "u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
+      "u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
       "CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END " \
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
@@ -1400,7 +1401,7 @@ else:
     if schema == "":
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
-      "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
+      "u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
       "CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END " \
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid AND u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
@@ -1410,7 +1411,7 @@ else:
     else:
       sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  " \
-      "u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
+      "u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  " \
       "to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  " \
       "CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END " \
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
@@ -1447,14 +1448,16 @@ for row in rows:
         active_processes = rc
 
     cnt = cnt + 1
-    table  = row[0]
-    sizep  = row[1]
-    size   = row[2]
-    tups   = row[3]
-    live   = row[4]
-    dead   = row[5]
-    part   = row[6]  
-    vacs   = row[11]
+    table    = row[0]
+    sizep    = row[1]
+    size     = row[2]
+    tups     = row[3]
+    live     = row[4]
+    dead     = row[5]
+    analyzed = row[6]
+    part     = row[7]  
+    vacs     = row[12]
+    
     if vacs == 'NOVACS':
        ASYNC= '*Async'
        SYNC = '*Sync'
@@ -1474,7 +1477,7 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (ASYNC, action_name, cnt, table, tups, sizep, size, dead))
+            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d NOTICE: Skipping large table.  Do manually." % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed)
             tablist.append(table)
             check_maxtables()
             tables_skipped = tables_skipped + 1
@@ -1488,7 +1491,7 @@ for row in rows:
                 tablist.append(table)
                 check_maxtables()
                 continue
-            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead))
+            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             check_maxtables()
@@ -1500,7 +1503,7 @@ for row in rows:
                 check_maxtables()
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead))
+            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -1520,12 +1523,12 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("%s  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (SYNC, action_name, cnt, table, tups, sizep, size, dead))
+            printit ("%s  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (SYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             check_maxtables()
         else:
-            printit ("%s  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (SYNC, action_name, cnt, table, tups, sizep, size, dead))
+            printit ("%s  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (SYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             sql = "VACUUM (ANALYZE, VERBOSE, %s) %s" % (parallelstatement, table)
             time.sleep(0.5)
             try:
@@ -1827,12 +1830,12 @@ for row in rows:
         continue
 
     if dryrun:
-        printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+        printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
         total_analyzes  = total_analyzes + 1
         tablist.append(table)
         check_maxtables()
     else:
-        printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+        printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
         sql = "ANALYZE VERBOSE %s" % table
         time.sleep(0.5)
         total_analyzes  = total_analyzes + 1
@@ -1966,10 +1969,10 @@ for row in rows:
 
     if size > threshold_max_size:
         if dryrun:
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d  NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tables_skipped = tables_skipped + 1
         else:
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d  NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tables_skipped = tables_skipped + 1
         continue
     elif size > threshold_max_sync:
@@ -1978,7 +1981,7 @@ for row in rows:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             active_processes = active_processes + 1
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
@@ -1988,7 +1991,7 @@ for row in rows:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %-57s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tablist.append(table)
             check_maxtables()
             asyncjobs = asyncjobs + 1
@@ -2007,12 +2010,12 @@ for row in rows:
             total_analyzes  = total_analyzes + 1
     else:
         if dryrun:
-            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             total_analyzes  = total_analyzes + 1
             tablist.append(table)
             check_maxtables()
         else:
-            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tablist.append(table)
             check_maxtables()
             sql = "ANALYZE VERBOSE %s" % table
@@ -2055,14 +2058,16 @@ if _verbose: printit("VERBOSE MODE: (9) Catchall analyze query section")
 if pgversion > 100000:
     if schema == "":
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
-      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, " \
+      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, " \
+      " u.n_mod_since_analyze::bigint, c.relispartition, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
       "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
-      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, c.relispartition, " \
+      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, " \
+      "u.n_mod_since_analyze::bigint, c.relispartition, " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
@@ -2072,14 +2077,16 @@ else:
 # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
     if schema == "":
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
-      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
+      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, " \
+      "u.n_mod_since_analyze::bigint,, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND  " \
       "now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 30  order by 1,1"
     else:
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
-      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
+      "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, " \
+      "u.n_mod_since_analyze::bigint, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned   , " \
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  " \
@@ -2113,13 +2120,14 @@ for row in rows:
         active_processes = rc
 
     cnt = cnt + 1
-    table  = row[0]
-    sizep  = row[1]
-    size   = row[2]
-    tups   = row[3]
-    live   = row[4]
-    dead   = row[5]
-    part   = row[6]
+    table    = row[0]
+    sizep    = row[1]
+    size     = row[2]
+    tups     = row[3]
+    live     = row[4]
+    dead     = row[5]
+    analyzed = row[6]
+    part     = row[7]
 
     if part and ignoreparts:
         partcnt = partcnt + 1    
@@ -2133,7 +2141,7 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tables_skipped = tables_skipped + 1
         continue
     elif tups > threshold_async_rows or size > threshold_max_sync:
@@ -2143,7 +2151,7 @@ for row in rows:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             total_analyzes = total_analyzes + 1
             tablist.append(table)
             check_maxtables()
@@ -2153,7 +2161,7 @@ for row in rows:
                 printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
                 tables_skipped = tables_skipped + 1
                 continue
-            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             asyncjobs = asyncjobs + 1
             
             # v3.1 change to include application name
@@ -2173,11 +2181,11 @@ for row in rows:
 
     else:
         if dryrun:
-            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tablist.append(table)
             check_maxtables()
         else:
-            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
+            printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (action_name, cnt, table, tups, sizep, size, dead, analyzed))
             sql = "ANALYZE VERBOSE %s" % table
             time.sleep(0.5)
             try:
