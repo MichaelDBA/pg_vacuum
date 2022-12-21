@@ -862,6 +862,7 @@ if nullsonly:
 									tables_skipped = tables_skipped + 1
 									tablist.append(table)
 									check_maxtables()
+									cnt = cnt - 1
 									continue
 							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
 							total_vacuums_analyzes = total_vacuums_analyzes + 1
@@ -939,6 +940,7 @@ if nullsonly:
 									cur.execute(sql)
 							except Exception as error:
 									printit("Exception: %s *** %s" % (type(error), error))
+									cnt = cnt - 1
 									continue            
 							total_vacuums_analyzes = total_vacuums_analyzes + 1
 							tablist.append(table)
@@ -948,6 +950,8 @@ if nullsonly:
 			printit ("Partitioned table vacuum/analyzes bypassed=%d" % partcnt)
 			partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
+	printit ("Tables vacuumed/analyzed: %d" % cnt)
+  
 	if inquiry:
 	  rc = _inquiry(conn,cur,tablist)
 	  
@@ -1052,6 +1056,7 @@ if bfreeze:
 				 printit ("Async %10s  %04d %-57s rows: %11d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
 								 % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, 100 * pctmax))
 				 tables_skipped = tables_skipped + 1
+				 cnt = cnt - 1
 				 continue
 
 				 if size > threshold_max_size:
@@ -1059,6 +1064,7 @@ if bfreeze:
 						printit ("Async %10s  %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
 										% (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
 						tables_skipped = tables_skipped + 1
+						cnt = cnt - 1
 						continue
 			elif tups > threshold_async_rows or size > threshold_max_sync:
 			#elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
@@ -1066,6 +1072,7 @@ if bfreeze:
 							if active_processes > threshold_max_processes:
 									printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
 									tables_skipped = tables_skipped + 1
+									cnt = cnt - 1
 									continue
 							printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
 							total_freezes = total_freezes + 1
@@ -1078,6 +1085,7 @@ if bfreeze:
 							if active_processes > threshold_max_processes:
 									printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
 									tables_skipped = tables_skipped + 1
+									cnt = cnt - 1
 									continue
 							# v3.1 change to include application name
 							connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
@@ -1107,6 +1115,7 @@ if bfreeze:
 									cur.execute(sql)
 							except Exception as error:
 									printit("Exception: %s *** %s" % (type(error), error))
+									cnt = cnt - 1
 									continue
 							total_freezes = total_freezes + 1
 							tablist.append(table)            
@@ -1116,6 +1125,8 @@ if bfreeze:
 			printit ("Partitioned table vacuum freezes bypassed=%d" % partcnt)
 			partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
+	printit ("Tables freezed: %d" % cnt)
+	
 	if inquiry:
 	  rc = _inquiry(conn,cur,tablist)
 	  
@@ -1310,6 +1321,7 @@ if bautotune:
 						cur.execute(sql)
 					except Exception as error:
 						printit("Exception: %s *** %s" % (type(error), error))
+						cnt = cnt - 1
 						continue
 					tablist.append(table)            
 					check_maxtables()
@@ -1318,6 +1330,8 @@ if bautotune:
 			printit ("Partitioned tables bypassed=%d" % partcnt)
 			partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
+	printit ("Tables vacuumed/analyzed: %d" % cnt)
+	
 	if inquiry:
 	  rc = _inquiry(conn,cur,tablist)
 	  
