@@ -1477,7 +1477,7 @@ for row in rows:
     if size > threshold_max_size:
         # defer action
         if dryrun:
-            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d NOTICE: Skipping large table.  Do manually." % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed)
+            printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d NOTICE: Skipping large table.  Do manually." % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             tablist.append(table)
             check_maxtables()
             tables_skipped = tables_skipped + 1
