@@ -75,6 +75,8 @@
 #                        If only deadtups provided, then proceed only if deadtups qualifies, ignore null vacuums/analyzes
 #                        If neither days nor deadtups provided, then vacuum everything
 # Dec.  21 2022    V5.1  Change maxsize parameter expected value unit from bytes to Gigabytes GB.
+# June  28 2023    V5.2  When checking for number of vacuum/analyze processes running, do case insensitive grep search
+#                        Also, add vacuums already running to the tablist
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -104,7 +106,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.0  December 20, 2022'
+version = '5.2  June 28, 2023'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -203,7 +205,8 @@ def execute_cmd(text):
     return rc
 
 def get_process_cnt():
-    cmd = "ps -ef | grep 'VACUUM (VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
+    # v5.2 fix: added case insensitive grep search ("-i")
+    cmd = "ps -ef | grep -i 'VACUUM (VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     result = int(result.decode('ascii'))
     return result
@@ -341,7 +344,7 @@ def _inquiry(conn,cur,tablist):
 					 "order by 1" % schema
 
 	try:
-	 cur.execute(sql)
+	  cur.execute(sql)
 	except Exception as error:
 	 printit("Exception: %s *** %s" % (type(error), error))
 	 conn.close()
@@ -390,6 +393,43 @@ def _inquiry(conn,cur,tablist):
 	# end of inquiry section
 
 	return
+
+def add_runningvacs_to_tablist(conn,cur,tablist):
+  sql = "SELECT query FROM pg_stat_activity WHERE query ilike 'vacuum %' or query ilike 'analyze %' ORDER BY 1"
+  try:
+    cur.execute(sql)
+  except Exception as error:
+    printit("Exception: %s *** %s" % (type(error), error))
+    conn.close()
+    sys.exit (1)
+
+  rows = cur.fetchall()
+  if len(rows) == 0:
+    printit ("No currently running vacuum or analyze jobs.")
+    return
+	
+  cnt = 0
+  for row in rows:
+    # results look like this:  VACUUM (ANALYZE) public.scanner_call_count_2023_06; 
+    # so parse with spaces delimiter to find the table
+    cnt = cnt + 1
+    parts = row[0].split(' ')
+    partlen = len(parts)
+    printit ("partlen=%d" % partlen)
+    cnt2 = 0
+    for apart in parts:
+      cnt2 = cnt2 + 1
+      printit ("row=%s  apart=%s" % (row,apart))
+      if cnt2 == partlen:
+        # must be table name
+        apart = apart.replace(";", "")  
+        tablist.append(apart)  
+  
+  for atable in tablist:
+    print("excluded table: %s" % atable)
+		  
+  return
+
 
 
 ####################
@@ -622,6 +662,10 @@ if pgversion > 130000:
 
 if _verbose: printit("VERBOSE MODE: PG Version: %s  Parallel:%r  Max Parallel Maintenance Workers: %d  Parallel clause: %s" % (pgversion, bParallel, parallelworkers, parallelstatement))
 active_processes = 0
+
+# add running vacuum/analyzes to table bypass list
+add_runningvacs_to_tablist(conn,cur,tablist)
+
 
 #################################
 # 1. Check Action Only          #
@@ -2116,5 +2160,3 @@ if inquiry:
 conn.close()
 printit ("Closed the connection and exiting normally.")
 sys.exit(0)
-
-
