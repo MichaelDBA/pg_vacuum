@@ -2,7 +2,7 @@
 
 This python program does  vacuum/analyze/freeze actions on tables and materialized views based on the user inputs provided.
 
-(c) 2018-2022 SQLEXEC LLC
+(c) 2018-2023 SQLEXEC LLC
 <br/>
 GNU V3 and MIT licenses are conveyed accordingly.
 <br/>
