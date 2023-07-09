@@ -52,7 +52,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-l --debug`             Used primarily for debugging queries
 <br/>
-`-k --disablepageskip`   Used to force vacuum to not skip pages that the VM says are not needed
+`-k --disablepageskipping`   Used to force vacuum to not skip pages that the VM says are not needed
 <br/>
 `-g --orderbydate`       Useful for prioritizing tables that haven't been vacuumed/analyzed the longest
 <br/>
