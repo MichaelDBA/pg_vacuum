@@ -31,22 +31,22 @@
 # Mar.  18, 2020.  V2.7: Add option to run inquiry queries to validate work to be done. Fixed bug where case-sensitive table names caused errors. Added signal interrupts.
 # Sept. 13, 2020.  V2.8: Fixed bug in dryrun mode where inquiry section was not indented correctly causing an exception.
 # Nov.  12, 2020.  V2.9: Fixed schema sql bug in small table analyze section.  Did not escape double-quotes.
-#                        Adjusted format to allow for longer table names.  
+#                        Adjusted format to allow for longer table names.
 #                        Added parameter, --ignoreparts and sql logic supporting it.
 #                        Ignore pg_catalog and information_schema tables not in ('pg_catalog', 'pg_toast', 'information_schema')
 # Nov.  17, 2020.  V2.9: Deal with missing relispartition column from queries since it does not exist prior to version 10
 # Dec.  04, 2020.  V2.9: Undo logic for #6 Catchall query for analyze that have not happened for over 30 days, not 14. Also, fixed dup tables again. and for very old vacuums
 # Dec.  10, 2020.  V3.0: Rewrite for compatibiliity with python 2 and python3 and all versions of psycopg2.
-#                        Changed "<>" to <!=>   
-#                        Changed print "whatever" to print ("whatever") 
+#                        Changed "<>" to <!=>
+#                        Changed print "whatever" to print ("whatever")
 #                        Removed Psycopg2 exception handling and replaced with general one.
-# Jan.  03, 2021   V3.1: Show aysync jobs summary. Added new parm, async, to trigger async jobs even if thresholds are not met (coded, but not implemented yet). 
+# Jan.  03, 2021   V3.1: Show aysync jobs summary. Added new parm, async, to trigger async jobs even if thresholds are not met (coded, but not implemented yet).
 #                        Added application name to async jobs.  Lowered async threshold for max rows (threshold_async_rows) and max sync size (threshold_max_sync)
 # Jan.  12, 2021   V3.2: Fix nohup missing double quotes!
 # Jan.  26, 2021   V3.3: Add another parameter to do vacuums longer than x days, just like we do now for analyzes.
 #                        Also prevent multiple instances of this program to run against the same PG database.
 # Feb.  23, 2021   V3.4: Fix message for very old vacuums. and add min dead tups to > 0 --> vacuum(2) only at this time
-# May   01, 2021   V4.0: Compatible with Windows. 
+# May   01, 2021   V4.0: Compatible with Windows.
 #                        Fixed case where min dead tups was not being honored from the user.
 #                        Compare with >= dead tups not > dead tups.
 #                        Added date logic to vacuum determination logic
@@ -65,9 +65,9 @@
 # July  12 2022    V4.5  Fix: checkstats did not consider autovacuum_count, only vacuum_count.  Also changed default dead tups min from 10,000 to 1,000.
 # July  25 2022    V4.6  Enhancement: Make it work for MACs (darwin)
 # Sept. 02 2022    V4.7  Allow users to not provide hostname, instead of defaulting to localhost. Also, fix vacuums where dead tups provided found tables, but not greater than max days so ignored!
-# Nov.  28 2022    V4.8  Enable verbose parm for debugging purposes.  Also fix schema constraint that does not work in all cases. 
+# Nov.  28 2022    V4.8  Enable verbose parm for debugging purposes.  Also fix schema constraint that does not work in all cases.
 #                        Also enable vacuum in parallel for PG V13+ up to max maintenenance parallel workers. Also fixed user-interrupted termination error.
-# Dec.  20 2022    V5.0  Implemented new "autotune" feature that specifies the scale factor to use for vacuums and analyzes. 
+# Dec.  20 2022    V5.0  Implemented new "autotune" feature that specifies the scale factor to use for vacuums and analyzes.
 #                        Added new parm, minmodanalyzed, to work with analyzes like mindeadtups works with vacuums.
 #                        Also changed algorithm: if vacuum days provided and deadtups provided, then both have to qualify to proceed.
 #                        Don't consider null vacuums/analyzes anymore.  User must provide --nullsonly to do them separately.
@@ -77,15 +77,16 @@
 # Dec.  21 2022    V5.1  Change maxsize parameter expected value unit from bytes to Gigabytes GB.
 # June  28 2023    V5.2  When checking for number of vacuum/analyze processes running, do case insensitive grep search
 #                        Also, add vacuums already running to the tablist
-# July  08,2023    V5.3  Change default max sync from 100GB to 1TB, and max rows from 100 million to 10 billion before defaulting to async mode.
+# July  09,2023    V5.3  Change default max sync from 100GB to 1TB, and max rows from 100 million to 10 billion before defaulting to async mode.
 #                        Fixed bug with setting optional parameters to vacuum like page skipping and parallel workers
 #                        Added another flag to indicate disable page skipping, default is to skip pages where possible based on the VM to make vacuums run faster
 #                        Added another flag to order the results by last vacuumed date ascending.  Otherwise it defaults to tablename.
+#                        Set max size to 1TB. Anything greater is rejected.
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
 #      since the logic is based on timestamps that are not updated until AFTER the action is done.
-#   2. Change top shebang line to account for python, python or python2  
+#   2. Change top shebang line to account for python, python or python2
 #   3. By default, system schemas are not included when schemaname is ommitted from command line.
 #   4. Setting dead_tuples to zero will force pg_vacuum to vacuum/analyze all tables that have no previous vacuum/analyzes.
 #
@@ -93,7 +94,7 @@
 #     turn off autovacuum for testing
 #     pgbench -p 5414 -d -i -s 100 --init-steps=tgvpf pgbench
 #     pgbench -c 10 -j 2 -n -M simple -T 60 -U postgres -p 5414 pgbench
-#     
+#
 #
 # call example with all parameters:
 # pg_vacuum.py -H localhost -d testing -p 5432 -u postgres --maxsize 400000000000 --maxdays 1 --mindeadtups 1000 --schema public --inquiry --dryrun
@@ -110,7 +111,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.3  July 08, 2023'
+version = '5.3  July 09, 2023'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -127,9 +128,6 @@ threshold_dead_tups = 1000
 # 10 billion row threshold
 threshold_async_rows = 10000000000
 
-# 1 TB threshold, above this table actions are deferred
-threshold_max_size = 1073741824000
-
 # v 4.1 fix: no minimum, go by max only!
 # 50 MB minimum threshold
 #threshold_min_size = 50000000
@@ -145,7 +143,7 @@ threshold_max_processes = 12
 load_threshold = 250
 
 # PG v13+ enable parallel vacuuming for indexes > 130000
-bParallel = False 
+bParallel = False
 parallelworkers = 0
 
 class Range(object):
@@ -165,7 +163,7 @@ class Range(object):
     def __str__(self):
         return '[{0},{1}]'.format(self.start, self.end)
 
-        
+
 def signal_handler(signal, frame):
      printit('User-interrupted!')
      # sys.exit only creates an exception, it doesn't really exit!
@@ -185,10 +183,10 @@ def signal_handler(signal, frame):
 
 def check_maxtables():
     if len(tablist) > threshold_max_tables:
-        printit ("Max Tables Reached (%d). Consider increasing max tables." % (len(tablist)))    
+        printit ("Max Tables Reached (%d). Consider increasing max tables." % (len(tablist)))
         conn.close()
         sys.exit (1)
-     
+
 def printit(text):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     txt = now + ' ' + text
@@ -217,22 +215,22 @@ def highload():
     elif sys.platform == 'darwin':
         # V4.6
         cmd = "uptime | awk '{print $(NF-2)}'"
-    else:    
+    else:
         cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     min1  = str(result.decode())
     loadn = int(float(min1))
-    
+
     if sys.platform == 'darwin':
         # V4.6
         cmd = "sysctl -a | grep machdep.cpu.thread_count | awk '{print $2}'"
-    else:    
+    else:
         cmd = "cat /proc/cpuinfo | grep processor | wc -l"
-    
+
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     cpus  = str(result.decode())
     cpusn = int(float(cpus))
-    
+
     load = (loadn / cpusn) * 100
     if load < load_threshold:
         return False
@@ -248,7 +246,7 @@ def getload():
     total_cpu=float(psutil.cpu_count())
     load_average=os.getloadavg()
     load_now=float(load_average[0])
-    print ("load average=%s" % (load_average) 
+    print ("load average=%s" % (load_average)
     # print ("total cpu=%d" % total_cpu)
     # print ("load now=%d" % load_now)
 
@@ -304,13 +302,13 @@ def _inquiry(conn,cur,tablist):
   # print ("tables evaluated=%s" % tablist)
   # v5.0: fix query so materialized views show up as well (eliminated join to pg_tables)
   '''
-  SELECT u.schemaname || '.\"' || u.relname || '\"' as table, 
-  pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, 
-  age(c.relfrozenxid) as xid_age, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint as anal_tup, 
-  CASE WHEN u.n_live_tup = 0 AND u.n_dead_tup = 0 THEN 0.00 WHEN u.n_live_tup = 0 AND u.n_dead_tup > 0 THEN 100.00 ELSE round((u.n_dead_tup::numeric / u.n_live_tup::numeric),5) END pct_dead, 
-  CASE WHEN u.n_live_tup = 0 AND u.n_mod_since_analyze = 0 THEN 0.00 WHEN u.n_live_tup = 0 AND u.n_mod_since_analyze > 0 THEN 100.00 ELSE round((u.n_mod_since_analyze::numeric / u.n_live_tup::numeric),5) END pct_analyze, 
-  GREATEST(u.last_vacuum, u.last_autovacuum)::date as last_vacuumed, GREATEST(u.last_analyze, u.last_autoanalyze)::date as last_analyzed 
-  FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = u.schemaname and u.relname = c.relname and u.relid = c.oid and c.relkind in ('r','m','p') 
+  SELECT u.schemaname || '.\"' || u.relname || '\"' as table,
+  pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size,
+  age(c.relfrozenxid) as xid_age, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint as anal_tup,
+  CASE WHEN u.n_live_tup = 0 AND u.n_dead_tup = 0 THEN 0.00 WHEN u.n_live_tup = 0 AND u.n_dead_tup > 0 THEN 100.00 ELSE round((u.n_dead_tup::numeric / u.n_live_tup::numeric),5) END pct_dead,
+  CASE WHEN u.n_live_tup = 0 AND u.n_mod_since_analyze = 0 THEN 0.00 WHEN u.n_live_tup = 0 AND u.n_mod_since_analyze > 0 THEN 100.00 ELSE round((u.n_mod_since_analyze::numeric / u.n_live_tup::numeric),5) END pct_analyze,
+  GREATEST(u.last_vacuum, u.last_autovacuum)::date as last_vacuumed, GREATEST(u.last_analyze, u.last_autoanalyze)::date as last_analyzed
+  FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = u.schemaname and u.relname = c.relname and u.relid = c.oid and c.relkind in ('r','m','p')
   and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') order by 1;
   '''
   if schema == "":
@@ -377,15 +375,15 @@ def _inquiry(conn,cur,tablist):
 
     #print ("table = %s  len=%d" % (table, len(table)))
 
-    #pretty_size_span = 14     
+    #pretty_size_span = 14
     #reduce = len(table) - 50
     #if reduce > 0 and reduce < 8:
     #    pretty_size_span = pretty_size_span - reduce
 
     if inquiry == 'all':
-        printit("%55s %14s %14d %14d %12d %10d %10d %10d %10f %10f %12s %12s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, anal_tup, dead_pct, anal_pct, last_vacuumed, last_analyzed))      
-    else:   
-        if skip_table(table, tablist):      
+        printit("%55s %14s %14d %14d %12d %10d %10d %10d %10f %10f %12s %12s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, anal_tup, dead_pct, anal_pct, last_vacuumed, last_analyzed))
+    else:
+        if skip_table(table, tablist):
             printit("%55s %14s %14d %14d %12d %10d %10d %10d %10f %10f %12s %12s" % (table, sizep, size, xid_age, n_tup, n_live_tup, dead_tup, anal_tup, dead_pct, anal_pct, last_vacuumed, last_analyzed))
 
   # end of inquiry section
@@ -405,10 +403,10 @@ def add_runningvacs_to_tablist(conn,cur,tablist):
   if len(rows) == 0:
     printit ("No currently running vacuum or analyze jobs.")
     return
-  
+
   cnt = 0
   for row in rows:
-    # results look like this:  VACUUM (ANALYZE) public.scanner_call_count_2023_06; 
+    # results look like this:  VACUUM (ANALYZE) public.scanner_call_count_2023_06;
     # so parse with spaces delimiter to find the table
     cnt = cnt + 1
     parts = row[0].split(' ')
@@ -420,9 +418,9 @@ def add_runningvacs_to_tablist(conn,cur,tablist):
       # printit ("row=%s  apart=%s" % (row,apart))
       if cnt2 == partlen:
         # must be table name
-        apart = apart.replace(";", "")  
-        tablist.append(apart)  
-  
+        apart = apart.replace(";", "")
+        tablist.append(apart)
+
 # for atable in tablist:
 #    print("excluded table: %s" % atable)
   return
@@ -447,7 +445,7 @@ def get_instance_cnt(conn,cur):
 # Register the signal handler for CNTRL-C logic
 if sys.platform != 'win32':
     signal.signal(signal.SIGINT, signal_handler)
-    signal.siginterrupt(signal.SIGINT, False)        
+    signal.siginterrupt(signal.SIGINT, False)
 else:
     # v4 fix:
     signal.signal(signal.SIGINT, signal_handler)
@@ -519,18 +517,24 @@ debug               = args.debug
 if args.dryrun:
     dryrun = True
 if args.ignoreparts:
-    ignoreparts = True;    
+    ignoreparts = True;
 if args.async_:
-    async_ = True;        
+    async_ = True;
 if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
 
-# if args.maxsize != -1:
-if args.maxsize != -1:
-    # use user-provided max instead of program default (400 GB)
-    threshold_max_size = 1073741824 * args.maxsize
+# 1 TB threshold, above this table actions are deferred
+threshold_max_size = 1073741824000
 
+if args.maxsize != -1:
+    # use user-provided max instead of program default (1 TB)
+    temp = 1073741824 * args.maxsize
+    if temp > threshold_max_size:
+        printit("Max Size (1TB) Exceeded. You must vacuum tables larger than 1TB manually. Value Provided: %d GB." % temp)
+        sys.exit(1)
+    threshold_max_size = temp
+    
 dbname   = args.dbname
 hostname = args.hostname
 dbport   = args.dbport
@@ -601,14 +605,15 @@ else:
         printit('autotune range must be > 0.00001 and < 0.2.  Value provided = %f' % autotune)
         sys.exit(1)
 
-printit ("version: %s  dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size(GB/bytes):%d/%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
-        % (version, dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, args.maxsize, threshold_max_size, freeze, nullsonly, autotune, checkstats))
+printit ("version: %s" % version)
+printit ("dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size(GB/bytes):%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
+        % (dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, args.maxsize, freeze, nullsonly, autotune, checkstats))
 
 # Connect
 # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
 # connstr = "dbname=%s port=%d user=%s host=%s password=postgrespass" % (dbname, dbport, dbuser, hostname )
 # v4.7 fix for ident cases, ie, no hostname provided, even localhost
-if hostname == '': 
+if hostname == '':
     connstr = "dbname=%s port=%d user=%s application_name=%s connect_timeout=5" % (dbname, dbport, dbuser, 'pg_vacuum' )
 else:
     connstr = "dbname=%s port=%d user=%s host=%s application_name=%s connect_timeout=5" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
@@ -617,7 +622,7 @@ try:
 except Exception as error:
     printit("Database Connection Error: %s *** %s" % (type(error), error))
     sys.exit (1)
-        
+
 printit("connected to database successfully. NOTE: Materialized Views are included with this utility.")
 
 # to run vacuum through the psycopg2 driver, the isolation level must be changed.
@@ -636,13 +641,13 @@ if rc == BAD:
 elif instances > 0:
     printit("Other pg_vacuum instances already running (%d).  Program will close." % (instances))
     conn.close()
-    sys.exit (1)    
+    sys.exit (1)
 
 # get version since 9.6 and earlier do not have a relispartition column in pg_class table
 # it will look something like this or this: 90618 or 100013, so anything greater than 100000 would be 10+ versions.
 # also it looks like we are not currently using the relispartition column anyway, so just remove it for now
 # substitute this case statement for c.relispartition wherever it is used.
-# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
+# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
 
 sql = "show server_version_num"
 try:
@@ -661,9 +666,8 @@ parallelstatement = ''
 if pgversion > 120000:
     if disablepageskipping:
         parallelstatement = 'DISABLE_PAGE_SKIPPING FALSE'
-    
 
-if pgversion > 130000: 
+if pgversion > 130000:
     bParallel = True
     sql = "show max_parallel_maintenance_workers"
     try:
@@ -675,7 +679,7 @@ if pgversion > 130000:
 
     rows = cur.fetchone()
     parallelworkers = int(rows[0])
-    
+
     if parallelstatement == '':
         parallelstatement = 'PARALLEL ' + str(parallelworkers)
     else:
@@ -692,7 +696,7 @@ add_runningvacs_to_tablist(conn,cur,tablist)
 # 1. Check Action Only          #
 #################################
 if checkstats:
-  '''      
+  '''
   V.4.5 Fix: add autovacuum and autoanalyze counts
   select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1;
   select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1;
@@ -704,14 +708,14 @@ if checkstats:
         "(select coalesce(sum(foo.no_vacuums), 0)   as no_vacuums   FROM (select schemaname, count(*) as no_vacuums   from pg_stat_user_tables where schemaname not like 'pg_temp%' and vacuum_count = 0 and autovacuum_count = 0 group by 1 order by 1) as foo) aa, " \
         "(select coalesce(sum(foo.no_analyzes), 0)  as no_analyzes  FROM (select schemaname, count(*) as no_analyzes  from pg_stat_user_tables where schemaname not like 'pg_temp%' and analyze_count = 0 and autoanalyze_count = 0 group by 1 order by 1) as foo) bb, " \
         "(select coalesce(sum(foo.old_vacuums), 0)  as old_vacuums  FROM (select schemaname, count(*) as old_vacuums  from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_vacuum, last_autovacuum)   < now() - interval '10 day' group by 1 order by 1) as foo) cc, " \
-        "(select coalesce(sum(foo.old_analyzes), 0) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; " 
+        "(select coalesce(sum(foo.old_analyzes), 0) as old_analyzes FROM (select schemaname, count(*) as old_analyzes from pg_stat_user_tables where schemaname not like 'pg_temp%' and greatest(last_analyze, last_autoanalyze) < now() - interval '20 day' group by 1 order by 1) as foo) dd; "
 
   try:
       cur.execute(sql)
   except Exception as error:
       printit("Check Stats Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)     
+      sys.exit (1)
   rows = cur.fetchone()
   no_vacuums   = rows[0]
   no_analyzes  = rows[1]
@@ -727,7 +731,7 @@ if checkstats:
   except Exception as error:
       printit("Check Stats Details1 Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)         
+      sys.exit (1)
   rows = cur.fetchall()
   if len(rows) == 0:
       printit("no vacuums: None Found")
@@ -744,10 +748,10 @@ if checkstats:
   except Exception as error:
       printit("Check Stats Details2 Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)         
+      sys.exit (1)
   rows = cur.fetchall()
   if len(rows) == 0:
-      printit("No analyzes : %20s  %4d" % ('None Found',0))    
+      printit("No analyzes : %20s  %4d" % ('None Found',0))
   cnt = 0
   for row in rows:
       cnt = cnt + 1
@@ -761,10 +765,10 @@ if checkstats:
   except Exception as error:
       printit("Check Stats Details3 Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)         
+      sys.exit (1)
   rows = cur.fetchall()
   if len(rows) == 0:
-      printit("old vacuums: None Found")    
+      printit("old vacuums: None Found")
   cnt = 0
   for row in rows:
       cnt = cnt + 1
@@ -778,7 +782,7 @@ if checkstats:
   except Exception as error:
       printit("Check Stats Details4 Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)         
+      sys.exit (1)
   rows = cur.fetchall()
   cnt = 0
   if len(rows) == 0:
@@ -799,11 +803,11 @@ if checkstats:
 #################################
 if nullsonly:
   '''
-  SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  
-  pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, 
-  u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, 
-  to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, u.vacuum_count, u.analyze_count 
-  FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and 
+  SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,
+  pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,
+  u.n_dead_tup::bigint AS dead_tup, c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,
+  to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, u.vacuum_count, u.analyze_count
+  FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and
   t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname AND (u.vacuum_count = 0 OR u.analyze_count = 0) order by 1;
 
   '''
@@ -853,7 +857,7 @@ if nullsonly:
   except Exception as error:
       printit("Nulls Only Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)     
+      sys.exit (1)
 
   rows = cur.fetchall()
   if len(rows) == 0:
@@ -864,7 +868,7 @@ if nullsonly:
   cnt = 0
   partcnt = 0
   action_name = 'VAC/ANALYZ'
-  
+
   for row in rows:
       if active_processes > threshold_max_processes:
           # see how many are currently running and update the active processes again
@@ -884,11 +888,11 @@ if nullsonly:
       tups     = row[3]
       live     = row[4]
       dead     = row[5]
-      part     = row[6]  
-      last_vac = row[7]  
-      last_avac= row[8]  
-      last_anl = row[9]  
-      last_aanl= row[10]  
+      part     = row[6]
+      last_vac = row[7]
+      last_avac= row[8]
+      last_anl = row[9]
+      last_aanl= row[10]
       vac_cnt  = int(row[11])
       anal_cnt = int(row[12])
 
@@ -902,7 +906,7 @@ if nullsonly:
       #printit("DEBUG action=%s  vac=%d  anal=%d  table=%s" % (action_name, vac_cnt, anal_cnt, table))
 
       if part and ignoreparts:
-          partcnt = partcnt + 1    
+          partcnt = partcnt + 1
           #print ("ignoring partitioned table: %s" % table)
           cnt = cnt - 1
           continue
@@ -914,7 +918,7 @@ if nullsonly:
 
       if size > threshold_max_size:
           if dryrun:
-              # defer action          
+              # defer action
               printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d NOTICE: Skipping large table.  Do manually." % (action_name, cnt, table, tups, sizep, size, dead))
               tablist.append(table)
               check_maxtables()
@@ -1006,7 +1010,7 @@ if nullsonly:
               except Exception as error:
                   printit("Exception: %s *** %s" % (type(error), error))
                   cnt = cnt - 1
-                  continue            
+                  continue
               total_vacuums_analyzes = total_vacuums_analyzes + 1
               tablist.append(table)
               check_maxtables()
@@ -1016,10 +1020,10 @@ if nullsonly:
       partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
   printit ("Tables vacuumed/analyzed: %d" % cnt)
-  
+
   if inquiry:
     rc = _inquiry(conn,cur,tablist)
-    
+
   conn.close()
   printit ("End of Nulls Only action.  Closing the connection and exiting normally.")
   sys.exit(0)
@@ -1054,7 +1058,7 @@ if bfreeze:
         "AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (schema, threshold_freeze)
   else:
   # put version 9.x compatible query here
-  # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
+  # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
       if schema == "":
          sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
@@ -1071,7 +1075,7 @@ if bfreeze:
   except Exception as error:
       printit("Freeze Tables Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)     
+      sys.exit (1)
 
   rows = cur.fetchall()
   if len(rows) == 0:
@@ -1110,7 +1114,7 @@ if bfreeze:
       part     = row[7]
 
       if part and ignoreparts:
-          partcnt = partcnt + 1    
+          partcnt = partcnt + 1
           #print ("ignoring partitioned table: %s" % table)
           continue
 
@@ -1144,7 +1148,7 @@ if bfreeze:
               tablist.append(table)
               check_maxtables()
               if len(tablist) > threshold_max_tables:
-                  printit ("Max Tables Reached: %d." % len(tablist))    
+                  printit ("Max Tables Reached: %d." % len(tablist))
               active_processes = active_processes + 1
           else:
               if active_processes > threshold_max_processes:
@@ -1183,7 +1187,7 @@ if bfreeze:
                   cnt = cnt - 1
                   continue
               total_freezes = total_freezes + 1
-              tablist.append(table)            
+              tablist.append(table)
               check_maxtables()
 
   if ignoreparts:
@@ -1191,10 +1195,10 @@ if bfreeze:
       partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
   printit ("Tables freezed: %d" % cnt)
-  
+
   if inquiry:
     rc = _inquiry(conn,cur,tablist)
-    
+
   conn.close()
   printit ("End of Freeze action.  Closing the connection and exiting normally.")
   sys.exit(0)
@@ -1206,14 +1210,14 @@ if bautotune:
   if _verbose: printit("VERBOSE MODE: (4) Autotune section")
 
   '''
-  select t.schemaname || '.' || t.relname "Table", pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) "Sizep", pg_catalog.pg_relation_size(c.oid) size,t.n_live_tup live_tup, t.n_dead_tup dead_tup, 
-  round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh, 
-  CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead, 
-  round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh, 
-  CASE WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze > 0 THEN 100.00 ELSE round((t.n_mod_since_analyze::numeric / t.n_live_tup::numeric),5) END pct_analyze, 
-  t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, -1 n_ins_since_vacuum, c.relkind, 
+  select t.schemaname || '.' || t.relname "Table", pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) "Sizep", pg_catalog.pg_relation_size(c.oid) size,t.n_live_tup live_tup, t.n_dead_tup dead_tup,
+  round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,
+  CASE WHEN t.n_live_tup = 0 AND t.n_dead_tup = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_dead_tup > 0 THEN 100.00 ELSE round((t.n_dead_tup::numeric / t.n_live_tup::numeric),5) END pct_dead,
+  round((n_live_tup * current_setting('autovacuum_analyze_scale_factor')::float8 ) + current_setting('autovacuum_analyze_threshold')::float8) analyze_thresh,
+  CASE WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze = 0 THEN 0.00 WHEN t.n_live_tup = 0 AND t.n_mod_since_analyze > 0 THEN 100.00 ELSE round((t.n_mod_since_analyze::numeric / t.n_live_tup::numeric),5) END pct_analyze,
+  t.vacuum_count vac_cnt, t.autovacuum_count autovac_cnt, t.analyze_count ana_cnt, t.autoanalyze_count autoana_cnt, t.n_mod_since_analyze mod_since_ana, -1 n_ins_since_vacuum, c.relkind,
   GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,  GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze
-  FROM pg_stat_user_tables t, pg_namespace n, pg_class c 
+  FROM pg_stat_user_tables t, pg_namespace n, pg_class c
   WHERE n.nspname =  t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1,2 LIMIT 20;
          Table            |  Sizep  |    size    | live_tup | dead_tup | dead_thresh | pct_dead | analyze_thresh | pct_analyze | vac_cnt | autovac_cnt | ana_cnt | autoana_cnt | mod_since_ana | ins_since_vac | last_vacuum | last_autovacuum
   --------------------- --+---------+------------+----------+----------+-------------+----------+----------------+-------------+---------+-------------+---------+-------------+---------------+---------------+-------------+-----------------
@@ -1222,7 +1226,7 @@ if bautotune:
   public.pgbench_history  | 4632 kB |    4743168 |    89979 |        0 |        1850 |  0.00000 |            950 |     0.33270 |       1 |           6 |       1 |           6 |         29936 |         29936 | 2022-12-18  | 2022-12-18
   public.pgbench_tellers  | 240 kB  |     245760 |     1000 |      715 |          70 |  0.71500 |             60 |    29.93600 |       3 |           6 |       1 |           6 |         29936 |             0 | 2022-12-18  | 2022-12-18
   '''
-  if pgversion < 130000:  
+  if pgversion < 130000:
     # earlier versions do not have n_ins_since_vacuum column
     if schema == "":
       sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
@@ -1244,7 +1248,7 @@ if bautotune:
             "GREATEST(t.last_vacuum, t.last_autovacuum)::date as last_vacuum,  GREATEST(t.last_analyze,t.last_autoanalyze)::date as last_analyze  " \
             "FROM pg_stat_user_tables t, pg_namespace n, pg_class c  " \
             "WHERE n.nspname = '%s' AND n.nspname = t.schemaname AND n.oid = c.relnamespace AND t.relname = c.relname AND (t.n_dead_tup > 0 OR t.n_mod_since_analyze > 0) ORDER BY 1, 2 "  % (schema)
-  else:    
+  else:
     if schema == "":
       sql = "SELECT t.schemaname || '.\"' || t.relname || '\"' as atable, pg_catalog.pg_size_pretty(pg_catalog.pg_relation_size(c.oid)) Sizep, pg_catalog.pg_relation_size(c.oid) Size, t.n_live_tup live_tup, t.n_dead_tup dead_tup, " \
             "round((n_live_tup * current_setting('autovacuum_vacuum_scale_factor')::float8 ) + current_setting('autovacuum_vacuum_threshold')::float8) dead_thresh,  " \
@@ -1270,13 +1274,13 @@ if bautotune:
   except Exception as error:
       printit("Autotune Tables Exception: %s *** %s" % (type(error), error))
       conn.close()
-      sys.exit (1)     
+      sys.exit (1)
 
   rows = cur.fetchall()
   if len(rows) == 0:
       printit ("AUTOTUNE: no threshold candidates to evaluate for vacuums/analyzes.")
   else:
-      printit ("AUTOTUNE tables to be evaluated=%d.  Includes deferred ones too." % len(rows) )  
+      printit ("AUTOTUNE tables to be evaluated=%d.  Includes deferred ones too." % len(rows) )
 
   cnt = 0
   partcnt = 0
@@ -1311,11 +1315,11 @@ if bautotune:
       relkind       = row[15]
       last_vacuum   = row[16]
       last_analyze  = row[17]
-      
+
       #print (row)
       sql2 = ''
       if autotune <= pct_dead and autotune <= pct_anal:
-        sql2 = 'VACUUM ANALYZE'      
+        sql2 = 'VACUUM ANALYZE'
         action_name = 'VAC/ANALYZ'
       elif autotune <= pct_dead:
         sql2 = 'VACUUM'
@@ -1327,11 +1331,11 @@ if bautotune:
         # nothing to do
         cnt = cnt - 1
         continue
-        
+
       #if _verbose: printit('tbl=%s  sql=%s' % (table,sql2))
-      
+
       if relkind == 'p' and ignoreparts:
-          partcnt = partcnt + 1    
+          partcnt = partcnt + 1
           cnt = cnt - 1
           #print ("ignoring partitioned table: %s" % table)
           continue
@@ -1354,7 +1358,7 @@ if bautotune:
               tablist.append(table)
               check_maxtables()
               if len(tablist) > threshold_max_tables:
-                  printit ("Max Tables Reached: %d." % len(tablist))    
+                  printit ("Max Tables Reached: %d." % len(tablist))
               active_processes = active_processes + 1
           else:
               if active_processes > threshold_max_processes:
@@ -1388,7 +1392,7 @@ if bautotune:
               printit("Exception: %s *** %s" % (type(error), error))
               cnt = cnt - 1
               continue
-          tablist.append(table)            
+          tablist.append(table)
           check_maxtables()
 
   if ignoreparts:
@@ -1396,10 +1400,10 @@ if bautotune:
       partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
   printit ("Tables vacuumed/analyzed: %d" % cnt)
-  
+
   if inquiry:
     rc = _inquiry(conn,cur,tablist)
-    
+
   conn.close()
   printit ("End of Autotune action.  Closing the connection and exiting normally.")
   sys.exit(0)
@@ -1415,25 +1419,25 @@ if _verbose: printit("VERBOSE MODE: (5) Vacuum/Analyze section")
 #V 2.4 Fix, needed to add logic to check for null timestamps!
 '''
 -- all >10+
-SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
-pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, 
+SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,
+pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,
 u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze,
-c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, 
-to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze, 
-CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END 
-FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') 
-AND (u.n_dead_tup >= -1 AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > -1 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > -1 
-OR (-1 = -1 AND -1 = -1 AND -1 = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL)) 
+c.relispartition, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,
+to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,
+CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END
+FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p')
+AND (u.n_dead_tup >= -1 AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > -1 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > -1
+OR (-1 = -1 AND -1 = -1 AND -1 = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL))
 ORDER BY 1;
 -- all < 10
-SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,  
-pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,  
-u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint AS since_analyzed, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,  
-to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,  
-CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END, now()::date - GREATEST(last_analyze, last_autoanalyze)::date 
+SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,
+pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup,
+u.n_dead_tup::bigint AS dead_tup, u.n_mod_since_analyze::bigint AS since_analyzed, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum,
+to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze,
+CASE WHEN last_vacuum is null and last_autovacuum is null THEN 'NOVACS' ELSE 'VACS' END, now()::date - GREATEST(last_analyze, last_autoanalyze)::date
 FROM pg_namespace n, pg_class c, pg_stat_user_tables u where n.oid = c.relnamespace AND c.relkind in ('r','m','p') AND c.relname = u.relname and n.nspname = u.schemaname
-AND (u.n_dead_tup >= -1 AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > -1 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > -1 
-OR (-1 = -1 AND -1 = -1 AND -1 = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL)) 
+AND (u.n_dead_tup >= -1 AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > -1 AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > -1
+OR (-1 = -1 AND -1 = -1 AND -1 = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL))
 ORDER BY 1;
 
 '''
@@ -1459,7 +1463,7 @@ if pgversion > 100000:
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
       "AND (u.n_dead_tup >= %d AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d " \
       "OR (%d = -1 AND %d = -1 AND %d = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL)) " \
-      "ORDER BY 1" % (schema, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum)      
+      "ORDER BY 1" % (schema, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum)
 else:
 # put version 9.x compatible query here
 #CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
@@ -1482,8 +1486,8 @@ else:
       "FROM pg_namespace n, pg_class c, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname = '%s' and u.schemaname = n.nspname and u.relname = c.relname AND c.relkind in ('r','m','p') " \
       "AND (u.n_dead_tup >= %d AND now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d " \
       "OR (%d = -1 AND %d = -1 AND %d = -1 AND last_vacuum IS NULL AND last_autovacuum IS NULL AND last_analyze IS NULL AND last_autoanalyze IS NULL)) " \
-      "ORDER BY 1" % (schema, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum)      
-      
+      "ORDER BY 1" % (schema, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_days_analyze, threshold_max_days_vacuum)
+
 try:
      cur.execute(sql)
 except Exception as error:
@@ -1520,18 +1524,18 @@ for row in rows:
     live     = row[4]
     dead     = row[5]
     analyzed = row[6]
-    part     = row[7]  
+    part     = row[7]
     vacs     = row[12]
-    
+
     if vacs == 'NOVACS':
        ASYNC= '*Async'
        SYNC = '*Sync'
     else:
        ASYNC= ' Async'
        SYNC = ' Sync'
-    
+
     if part and ignoreparts:
-        partcnt = partcnt + 1    
+        partcnt = partcnt + 1
         #print ("ignoring partitioned table: %s" % table)
         continue
 
@@ -1570,7 +1574,7 @@ for row in rows:
                 continue
             printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             asyncjobs = asyncjobs + 1
-            
+
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
@@ -1606,7 +1610,7 @@ for row in rows:
                 cur.execute(sql)
             except Exception as error:
                 printit("Exception: %s *** %s" % (type(error), error))
-                continue            
+                continue
             total_vacuums_analyzes = total_vacuums_analyzes + 1
             tablist.append(table)
             check_maxtables()
@@ -1635,7 +1639,7 @@ if _verbose: printit("VERBOSE MODE: (6) Vacuum query section")
 if orderbydate:
     ORDERBY="GREATEST(last_vacuum, last_autovacuum) asc"
 else:
-    ORDERBY="1 asc"    
+    ORDERBY="1 asc"
 
 if pgversion > 100000:
     if schema == "":
@@ -1664,7 +1668,7 @@ if pgversion > 100000:
       ####"ORDER BY 1 asc;" % (schema, threshold_max_days_vacuum, threshold_dead_tups, threshold_max_days_vacuum, threshold_dead_tups)
 else:
     # put version 9.x compatible query here
-    # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
+    # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
     if schema == "":
        sql = "SELECT psut.schemaname || '.\"' || psut.relname || '\"' as table, to_char(psut.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(psut.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, " \
       "pg_class.reltuples::bigint AS n_tup,  psut.n_dead_tup::bigint AS dead_tup, pg_size_pretty(pg_total_relation_size(quote_ident(psut.schemaname) || '.' || quote_ident(psut.relname))::bigint), " \
@@ -1699,7 +1703,7 @@ except Exception as error:
     printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
     sys.exit (1)
-    
+
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No vacuums to be done.")
@@ -1729,7 +1733,7 @@ for row in rows:
     dead          = row[4]
     sizep         = row[5]
     size          = row[6]
-    part          = row[7]    
+    part          = row[7]
     av_threshold  = row[8]
     expect_av     = row[9]
     vacs          = row[10]
@@ -1741,11 +1745,11 @@ for row in rows:
        SYNC = ' Sync'
 
     if part and ignoreparts:
-        partcnt = partcnt + 1    
+        partcnt = partcnt + 1
         #print ("ignoring partitioned table: %s" % table)
         cnt = cnt - 1
         continue
-        
+
     # check if we already processed this table
     if skip_table(table, tablist):
         cnt = cnt - 1
@@ -1781,12 +1785,12 @@ for row in rows:
                 continue
             printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
-            
+
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
-            tbl= table.replace('"', '\\"')            
+            tbl= table.replace('"', '\\"')
             tbl= tbl.replace('$', '\$')
             if parallelstatement == '':
               cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
@@ -1827,15 +1831,15 @@ if ignoreparts:
     printit ("Partitioned table vacuums bypassed=%d" % partcnt)
     partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
-printit ("Tables vacuumed: %d" % cnt)    
+printit ("Tables vacuumed: %d" % cnt)
 
 #################################
 # 7. Analyze Section            #
 #################################
 '''
-select n.nspname || '.' || c.relname as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, u.n_mod_since_analyze::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname))::bigint),  
-pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as size, c.relispartition, u.last_analyze, u.last_autoanalyze, 
-CASE WHEN c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100) END as tupdiff, now()::date  - last_analyze::date as lastanalyzed2 
+select n.nspname || '.' || c.relname as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, u.n_mod_since_analyze::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname))::bigint),
+pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as size, c.relispartition, u.last_analyze, u.last_autoanalyze,
+CASE WHEN c.reltuples = 0 THEN -1 ELSE round((u.n_live_tup / c.reltuples) * 100) END as tupdiff, now()::date  - last_analyze::date as lastanalyzed2
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and
 u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog') and now()::date - GREATEST(last_analyze, last_autoanalyze)::date > 5 and
 pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= 50000000 order by 1,2;
@@ -1864,7 +1868,7 @@ if pgversion > 100000:
       "and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2" % (schema, threshold_max_days_analyze, threshold_max_size)
 else:
 # put version 9.x compatible query here
-# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
+# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
     if schema == "":
        sql = "select n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint, u.n_live_tup::bigint, u.n_dead_tup::bigint, u.n_mod_since_analyze::bigint, pg_size_pretty(pg_total_relation_size(quote_ident(n.nspname) || '.' ||  " \
       "quote_ident(c.relname))::bigint), pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) as size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i " \
@@ -1890,8 +1894,8 @@ try:
 except Exception as error:
     printit("Exception: %s *** %s" % (type(error), error))
     conn.close()
-    sys.exit (1)    
-      
+    sys.exit (1)
+
 rows = cur.fetchall()
 if len(rows) == 0:
     printit ("No tables require analyzes to be done.")
@@ -1912,7 +1916,7 @@ for row in rows:
     part     = row[7]
 
     if part and ignoreparts:
-        partcnt = partcnt + 1    
+        partcnt = partcnt + 1
         #print *"ignoring partitioned table: %s" % table)
         cnt = cnt - 1
         continue
@@ -1968,15 +1972,15 @@ for row in rows:
             tablist.append(table)
             check_maxtables()
             asyncjobs = asyncjobs + 1
-            
+
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
-            tbl= table.replace('"', '\\"')            
+            tbl= table.replace('"', '\\"')
             tbl= tbl.replace('$', '\$')
             cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
-            
+
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             active_processes = active_processes + 1
@@ -2003,9 +2007,9 @@ for row in rows:
 
 if ignoreparts:
     printit ("Big partitioned table analyzes bypassed=%d" % partcnt)
-    partitioned_tables_skipped = partitioned_tables_skipped + partcnt    
+    partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
-printit ("Tables analyzed: %d" % cnt)    
+printit ("Tables analyzed: %d" % cnt)
 
 
 #################################
@@ -2025,12 +2029,12 @@ SELECT u.schemaname || '.' || u.relname as table, pg_size_pretty(pg_total_relati
 FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and t.schemaname = n.nspname and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 5 and u.n_dead_tup >= 1000 order by 1,1;
 
 -- v9.6 or lower
-SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, 
-pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, 
-CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, 
-to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze, 
-to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and 
-t.schemaname = n.nspname  and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND 
+SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty,
+pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup,
+CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned,
+to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,
+to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and
+t.schemaname = n.nspname  and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and n.nspname not in ('information_schema','pg_catalog', 'pg_toast') AND
 now()::date - GREATEST(last_vacuum, last_autovacuum)::date > 30 and u.n_dead_tup >= 0 order by 1,1;
 
 
@@ -2057,7 +2061,7 @@ if pgversion > 100000:
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
 else:
 # put version 9.x compatible query here
-# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned 
+# CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
     if schema == "":
        sql = "SELECT u.schemaname || '.\"' || u.relname || '\"' as table, pg_size_pretty(pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname))::bigint) as size_pretty, " \
       "pg_total_relation_size(quote_ident(u.schemaname) || '.' || quote_ident(u.relname)) as size, c.reltuples::bigint AS n_tup, u.n_live_tup::bigint as n_live_tup, u.n_dead_tup::bigint AS dead_tup, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
@@ -2071,7 +2075,7 @@ else:
       "to_char(u.last_vacuum, 'YYYY-MM-DD HH24:MI') as last_vacuum, to_char(u.last_autovacuum, 'YYYY-MM-DD HH24:MI') as last_autovacuum, to_char(u.last_analyze,'YYYY-MM-DD HH24:MI') as last_analyze,  " \
       "to_char(u.last_autoanalyze,'YYYY-MM-DD HH24:MI') as last_autoanalyze FROM pg_namespace n, pg_class c, pg_tables t, pg_stat_user_tables u where c.relnamespace = n.oid and t.schemaname = '%s' and t.schemaname = n.nspname  " \
       "and t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname  AND  now()::date - GREATEST(last_vacuum, last_autovacuum)::date > %d and u.n_dead_tup >= %d order by 1,1" % (schema, threshold_max_days_vacuum, threshold_dead_tups)
-      
+
 try:
      cur.execute(sql)
 except Exception as error:
@@ -2110,7 +2114,7 @@ for row in rows:
     part   = row[6]
 
     if part and ignoreparts:
-        partcnt = partcnt + 1    
+        partcnt = partcnt + 1
         #print ("ignoring partitioned table: %s" % table)
         continue
 
@@ -2143,18 +2147,18 @@ for row in rows:
                 continue
             printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
-            
+
             # v3.1 change to include application name
             connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
-            tbl= table.replace('"', '\\"')            
+            tbl= table.replace('"', '\\"')
             tbl= tbl.replace('$', '\$')
             if parallelstatement == '':
               cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             else:
               cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (connparms, parallelstatement, tbl)
-            
+
             time.sleep(0.5)
             rc = execute_cmd(cmd)
             total_vacuums = total_vacuums + 1
@@ -2186,7 +2190,7 @@ for row in rows:
 
 if ignoreparts:
     printit ("Very old partitioned table vacuums bypassed=%d" % partcnt)
-    partitioned_tables_skipped = partitioned_tables_skipped + partcnt    
+    partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
 # wait for up to 2 hours for ongoing vacuums/analyzes to finish.
 if not dryrun:
