@@ -24,7 +24,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-U --dbuser`            database user
 <br/>
-`-s --maxsize`           max table size that will be considered (default, 400GB)
+`-s --maxsize`           max table size in Gigabytes that will be considered (default, 1 TB)
 <br/>
 `-y --analyzemaxdays`    Analyzes older than this will be considered
 <br/>
