@@ -50,6 +50,12 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-v --verbose`           Used primarily for debugging
 <br/>
+`-l --debug`             Used primarily for debugging queries
+<br/>
+`-k --disablepageskip`   Used to force vacuum to not skip pages that the VM says are not needed
+<br/>
+`-g --orderbydate`       Useful for prioritizing tables that haven't been vacuumed/analyzed the longest
+<br/>
 `-e --autotune`          specifies scale_factor to use for both vaccums and analyzes (range: 0.00001 to 0.2)
 <br/>
 `-f --freeze`            perform freeze in percentage provided if near the wraparound threshold (range: 10 - 99)
