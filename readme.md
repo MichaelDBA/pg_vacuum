@@ -58,7 +58,7 @@ This program is useful to identify and vacuum tables.  Most inputs are optional,
 <br/>
 `-e --autotune`          specifies scale_factor to use for both vaccums and analyzes (range: 0.00001 to 0.2)
 <br/>
-`-f --freeze`            perform freeze in percentage provided if near the wraparound threshold (range: 10 - 99)
+`-f --freeze`            perform freeze if xid age input value is in range (range: 50,000,000 - 1,500,000,000), no commas
 <br/>
 `-n --nullsonly`         Only consider tables with no vacuum or analyze history
 <br/>
