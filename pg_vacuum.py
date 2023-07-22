@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 #!/usr/bin/env python3
 #!/usr/bin/env python2
+############### NOTE: weird errors occur when weird characters are saved. Go to Notepad++ and select macro-->Trim trailing space and save
 ##################################################################################################
 # pg_vacuum.py
 #
@@ -82,6 +83,7 @@
 #                        Added another flag to indicate disable page skipping, default is to skip pages where possible based on the VM to make vacuums run faster
 #                        Added another flag to order the results by last vacuumed date ascending.  Otherwise it defaults to tablename.
 #                        Set max size to 1TB. Anything greater is rejected.
+# July 22, 2023    V5.4  Changed logic for freezing tables. Now it is based on an xid_age minimum value instead of a percentage of max freeze threshold
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -111,7 +113,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.3  July 09, 2023'
+version = '5.4  July 22, 2023'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -119,8 +121,8 @@ BAD = -1
 fmtrows  = '%11d'
 fmtbytes = '%13d'
 
-#threshold for freezing tables: 25 million rows from wraparound
-threshold_freeze = 25000000
+#minimum threshold for freezing tables: 50 million
+threshold_freeze = 50000000
 
 # minimum dead tuples
 threshold_dead_tups = 1000
@@ -489,7 +491,7 @@ parser.add_argument("-x", "--vacuummaxdays"  ,dest="maxdaysV",      help="Vacuum
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",       help="min dead tups",     type=int, default=-1,metavar="MINDEADTUPS")
 parser.add_argument("-z", "--minmodanalyzed",dest="minmodanalyzed", help="min tups analyzed", type=int, default=-1,metavar="MINMODANALYZED")
 parser.add_argument("-b", "--maxtables",dest="maxtables",           help="max tables",        type=int, default=9999,metavar="MAXTABLES")
-parser.add_argument("-f", "--freeze", dest="freeze",                help="vacuum freeze %",   type=int, default=-1, metavar="FREEZE 10 - 99")
+parser.add_argument("-f", "--freeze", dest="freeze",                help="vacuum freeze xid%",   type=int, default=-1, metavar="FREEZE > xid_age")
 parser.add_argument("-e", "--autotune", dest="autotune",            help="autotune",          type=float, choices=[Range(0.00001, 0.2)], metavar="AUTOTUNE 0.00001 to 0.2")
 parser.add_argument("-q", "--inquiry", dest="inquiry",              help="inquiry requested", type=str, default="", choices=['all', 'found', ''],  metavar="INQUIRY all | found")
 
@@ -534,12 +536,15 @@ if args.maxsize != -1:
         printit("Max Size (1TB) Exceeded. You must vacuum tables larger than 1TB manually. Value Provided: %d GB." % temp)
         sys.exit(1)
     threshold_max_size = temp
-    
+
 dbname   = args.dbname
 hostname = args.hostname
 dbport   = args.dbport
 dbuser   = args.dbuser
 schema   = args.schema
+
+# v3.1 change to include application name
+connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
 
 threshold_max_days_analyze = args.maxdaysA
 threshold_max_days_vacuum  = args.maxdaysV
@@ -554,8 +559,8 @@ freeze = args.freeze
 if freeze != -1:
     bfreeze = True
 
-if bfreeze and (freeze < 10 or freeze > 99):
-    printit("You must specify --freeze value range between 10 and 99.")
+if bfreeze and (freeze < 100000000 or freeze > 15000000000):
+    printit("You must specify --freeze value range between 100,000,000 (100 million) and 1,500,000,000 (1.5 billion).")
     sys.exit(1)
 
 # v4.1 fix: accept what the user says and don't override it
@@ -949,8 +954,6 @@ if nullsonly:
               printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
               asyncjobs = asyncjobs + 1
 
-              # v3.1 change to include application name
-              connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
               # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
               # V4.1 fix, escape double quotes
               tbl= table.replace('"', '\\"')
@@ -1033,42 +1036,40 @@ if nullsonly:
 # 3. Freeze Tables              #
 #################################
 if bfreeze:
-  '''
-  -- all
-  SELECT n.nspname || '.' || c.relname as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age,
-  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose,
-  pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty, pg_total_relation_size(c.oid) as table_size, c.relispartition FROM pg_class c, pg_namespace n WHERE n.nspname not in  ('pg_catalog', 'pg_toast',  'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < 25000000 ORDER BY age(c.relfrozenxid) DESC LIMIT 60;
-
-  -- public schema
-  SELECT n.nspname || '.' || c.relname as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age,
-  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose,
-  pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty, pg_total_relation_size(c.oid) as table_size, c.relispartition FROM pg_class c, pg_namespace n WHERE n.nspname = 'public' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < 25000000 ORDER BY age(c.relfrozenxid) DESC LIMIT 60;
-  '''
   if _verbose: printit("VERBOSE MODE: (3) Freeze section")
+  # ignore tables less than the minimum threshold, 50 million
   if pgversion > 100000:
       if schema == "":
-         sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
-        "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
-        "pg_total_relation_size(c.oid) as table_size, c.relispartition FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - " \
-        "age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (threshold_freeze)
+         sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid)::bigint as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
+         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
+         "pg_total_relation_size(c.oid) as table_size, c.relispartition, ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
+         "FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
+         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint AND age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC LIMIT 200" % (threshold_freeze)
       else:
-         sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
-        "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
-        "pg_total_relation_size(c.oid) as table_size, c.relispartition FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') " \
-        "AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (schema, threshold_freeze)
+         sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid)::bigint as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
+         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
+         "pg_total_relation_size(c.oid) as table_size, c.relispartition, ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
+         "FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
+         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint AND age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC LIMIT 200" % (schema, threshold_freeze)
+
   else:
   # put version 9.x compatible query here
   # CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False' ELSE 'True' END as partitioned
       if schema == "":
          sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
-        "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - " \
-        "age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (threshold_freeze)
+        "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
+        "ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
+        "FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - " \
+        "age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (threshold_freeze)
       else:
          sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
-        "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') " \
-        "AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint < %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (schema, threshold_freeze)
+        "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
+        "ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
+        "FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') " \
+        "AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC LIMIT 60" % (schema, threshold_freeze)
+  if debug: printit("DEBUG   QUERY: %s" % sql)
 
   try:
        cur.execute(sql)
@@ -1112,6 +1113,26 @@ if bfreeze:
       sizep    = row[5]
       size     = row[6]
       part     = row[7]
+      #pct      = int(row[8])
+      pct      = row[8]
+      
+      
+      if total_freezes > threshold_max_tables:
+          # exit, since we are finished and notify 
+          printit ("exiting since we exceeded user-provided max tables=%d" % (threshold_max_tables))
+          break
+
+      # bypass tables that are less than 10% of max age
+      #               table                          |   rows    |  xid_age  | freeze_max_age |  howclose  | table_size_pretty |  table_size   | relispartition | pct
+      #----------------------------------------------+-----------+-----------+----------------+------------+-------------------+---------------+----------------+-----
+      #public."amazonnewprod_adtags_update"          |  64689384 | 277193255 |     1500000000 | 1222806745 | 34 GB             |   36666990592 | f              |  18
+      #public."amazonnewprod_adtags_active_metadata" | 233080384 | 276124136 |     1500000000 | 1223875864 | 97 GB             |  103821336576 | f              |  18
+
+      if xidage < freeze:
+        # bypassing table
+        tables_skipped = tables_skipped + 1
+        if _verbose: printit ("bypassing table with xidage=%d.  Threshold minimum=%d" % (xidage, freeze))
+        continue
 
       if part and ignoreparts:
           partcnt = partcnt + 1
@@ -1120,23 +1141,16 @@ if bfreeze:
 
       # also bypass tables that are less than 15% of max age
       pctmax = float(xidage) / float(maxage)
-      # print("maxage=%10f  xidage=%10f  pctmax=%4f  freeze=%4f" % (maxage, xidage, pctmax, freeze))
-      if (100 * pctmax) < float(freeze):
-         printit ("Async %10s  %04d %-57s rows: %11d  size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d: Defer" \
-                 % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, 100 * pctmax))
-         tables_skipped = tables_skipped + 1
-         cnt = cnt - 1
-         continue
+      if _verbose: print("maxage=%10f  xidage=%10f  pctmax=%4f  freeze=%4f pct=%d" % (maxage, xidage, pctmax, freeze, pct))
 
-         if size > threshold_max_size:
-            # defer action
-            printit ("Async %10s  %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
-                    % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
-            tables_skipped = tables_skipped + 1
-            cnt = cnt - 1
-            continue
+      if size > threshold_max_size:
+          # defer action
+          printit ("Async %10s  %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d NOTICE: Skipping large table.  Do manually." \
+                  % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose))
+          tables_skipped = tables_skipped + 1
+          cnt = cnt - 1
+          continue
       elif tups > threshold_async_rows or size > threshold_max_sync:
-      #elif (tups > threshold_async_rows or size > threshold_max_sync) and async_:
           if dryrun:
               if active_processes > threshold_max_processes:
                   printit ("%10s: Max processes reached. Skipping further Async activity for very large table, %s.  Size=%s.  Do manually." % (action_name, table, sizep))
@@ -1156,8 +1170,6 @@ if bfreeze:
                   tables_skipped = tables_skipped + 1
                   cnt = cnt - 1
                   continue
-              # v3.1 change to include application name
-              connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
               # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
               # V4.1 fix, escape double quotes
               tbl= table.replace('"', '\\"')
@@ -1171,30 +1183,45 @@ if bfreeze:
               tablist.append(table)
               check_maxtables()
               active_processes = active_processes + 1
-
       else:
-          if dryrun:
-              printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
-              total_freezes = total_freezes + 1
+          if async_:
+              # force async regardless
+              printit ("Async  %10s: %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
+              time.sleep(0.5)
+              asyncjobs = asyncjobs + 1
+              cmd = 'nohup psql -d "%s" -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, table)
+              if dryrun:
+                  total_freezes = total_freezes + 1
+              else:
+                  rc = execute_cmd(cmd)
+                  total_freezes = total_freezes + 1
+                  tablist.append(table)
+                  check_maxtables()
+                  active_processes = active_processes + 1
           else:
               printit ("Sync  %10s: %04d %-57s rows: %11d size: %10s :%13d freeze_max: %10d  xid_age: %10d  how close: %10d  pct: %d" % (action_name, cnt, table, tups, sizep, size, maxage, xidage, howclose, (100 * pctmax)))
-              sql = "VACUUM (FREEZE, VERBOSE) %s" % table
-              time.sleep(0.5)
-              try:
-                  cur.execute(sql)
-              except Exception as error:
-                  printit("Exception: %s *** %s" % (type(error), error))
-                  cnt = cnt - 1
-                  continue
-              total_freezes = total_freezes + 1
-              tablist.append(table)
-              check_maxtables()
+              if dryrun:
+                  total_freezes = total_freezes + 1
+                  tablist.append(table)
+                  check_maxtables()
+              else:
+                  sql = "VACUUM (FREEZE, VERBOSE) %s" % table
+                  time.sleep(0.5)
+                  try:
+                      cur.execute(sql)
+                  except Exception as error:
+                      printit("Exception: %s *** %s" % (type(error), error))
+                      cnt = cnt - 1
+                      continue
+                  total_freezes = total_freezes + 1
+                  tablist.append(table)
+                  check_maxtables()
 
   if ignoreparts:
       printit ("Partitioned table vacuum freezes bypassed=%d" % partcnt)
       partitioned_tables_skipped = partitioned_tables_skipped + partcnt
 
-  printit ("Tables freezed: %d" % cnt)
+  printit ("Table freezes: %d  Async freezes: %d  Tables skipped: %d" % (total_freezes, asyncjobs, tables_skipped))
 
   if inquiry:
     rc = _inquiry(conn,cur,tablist)
@@ -1366,8 +1393,6 @@ if bautotune:
                   tables_skipped = tables_skipped + 1
                   cnt = cnt - 1
                   continue
-              # v3.1 change to include application name
-              connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
               tbl= table.replace('"', '\\"')
               tbl= tbl.replace('$', '\$')
               cmd = 'nohup psql -d "%s" -c "%s %s" 2>/dev/null &' % (connparms, sql2, tbl)
@@ -1575,8 +1600,6 @@ for row in rows:
             printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             asyncjobs = asyncjobs + 1
 
-            # v3.1 change to include application name
-            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
@@ -1786,8 +1809,6 @@ for row in rows:
             printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
 
-            # v3.1 change to include application name
-            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
@@ -1973,8 +1994,6 @@ for row in rows:
             check_maxtables()
             asyncjobs = asyncjobs + 1
 
-            # v3.1 change to include application name
-            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
@@ -2148,8 +2167,6 @@ for row in rows:
             printit ("Async %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d" % (action_name, cnt, table, tups, sizep, size, dead))
             asyncjobs = asyncjobs + 1
 
-            # v3.1 change to include application name
-            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
