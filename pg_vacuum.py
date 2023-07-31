@@ -433,7 +433,7 @@ def get_instance_cnt(conn,cur):
       cur.execute(sql)
   except Exception as error:
       printit ("Unable to check for multiple pg_vacuum instances: %s" % (e))
-      return rc, -1
+      return rc, BAD
 
   rows = cur.fetchone()
   instances = int(rows[0]) - 1
@@ -526,14 +526,14 @@ if args.dbname == "":
     printit("DB Name must be provided.")
     sys.exit(1)
 
-# 1 TB threshold, above this table actions are deferred
-threshold_max_size = 1073741824000
+# 5 TB threshold, above this table actions are deferred
+threshold_max_size = 5368709120000 
 
 if args.maxsize != -1:
     # use user-provided max instead of program default (1 TB)
     temp = 1073741824 * args.maxsize
     if temp > threshold_max_size:
-        printit("Max Size (1TB) Exceeded. You must vacuum tables larger than 1TB manually. Value Provided: %d GB." % temp)
+        printit("Max Size (1TB) Exceeded. You must vacuum tables larger than 5TB manually. Value Provided: %d." % temp)
         sys.exit(1)
     threshold_max_size = temp
 
@@ -559,8 +559,8 @@ freeze = args.freeze
 if freeze != -1:
     bfreeze = True
 
-if bfreeze and (freeze < 100000000 or freeze > 15000000000):
-    printit("You must specify --freeze value range between 100,000,000 (100 million) and 1,500,000,000 (1.5 billion).")
+if bfreeze and (freeze < 100000000 or freeze >  15000000000):
+    printit("You must specify --freeze value range between 100,000,000 (100 million) and 1,500,000,000 (1.5 billion). You specified %d" % freeze)
     sys.exit(1)
 
 # v4.1 fix: accept what the user says and don't override it
@@ -643,7 +643,8 @@ if rc == BAD:
     printit("Closing due to previous errors.")
     conn.close()
     sys.exit (1)
-elif instances > 0:
+elif instances > 1:
+    # allow for at least one other instance
     printit("Other pg_vacuum instances already running (%d).  Program will close." % (instances))
     conn.close()
     sys.exit (1)
