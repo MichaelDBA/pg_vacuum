@@ -84,6 +84,7 @@
 #                        Added another flag to order the results by last vacuumed date ascending.  Otherwise it defaults to tablename.
 #                        Set max size to 1TB. Anything greater is rejected.
 # July 22, 2023    V5.4  Changed logic for freezing tables. Now it is based on an xid_age minimum value instead of a percentage of max freeze threshold
+# July 31, 2023    V5.5  Fixed bugs for FREEZE query and removed limit clause
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -113,7 +114,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.4  July 22, 2023'
+version = '5.5  July 31, 2023'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -1045,13 +1046,13 @@ if bfreeze:
          "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
          "pg_total_relation_size(c.oid) as table_size, c.relispartition, ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
          "FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
-         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint AND age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC" % (threshold_freeze)
+         "age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC" % (threshold_freeze)
       else:
          sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid)::bigint as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
          "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
          "pg_total_relation_size(c.oid) as table_size, c.relispartition, ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
          "FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
-         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint AND age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC" % (schema, threshold_freeze)
+         "age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC, table_size DESC" % (schema, threshold_freeze)
 
   else:
   # put version 9.x compatible query here
@@ -1061,15 +1062,15 @@ if bfreeze:
         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
         "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
         "ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
-        "FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - " \
-        "age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC" % (threshold_freeze)
+        "FROM pg_class c, pg_namespace n WHERE n.nspname not in ('pg_catalog', 'pg_toast', 'information_schema') and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
+        "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC" % (threshold_freeze)
       else:
          sql = "SELECT n.nspname || '.\"' || c.relname || '\"' as table, c.reltuples::bigint as rows, age(c.relfrozenxid) as xid_age, CAST(current_setting('autovacuum_freeze_max_age') AS bigint) as freeze_max_age, " \
         "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint as howclose, pg_size_pretty(pg_total_relation_size(c.oid)) as table_size_pretty,  " \
         "pg_total_relation_size(c.oid) as table_size, CASE WHEN (SELECT c.relname AS child FROM pg_inherits i JOIN pg_class p ON (i.inhparent=p.oid) where i.inhrelid=c.oid) IS NULL THEN 'False'::boolean ELSE 'True'::boolean END as partitioned, " \
         "ROUND((age(c.relfrozenxid)::numeric / CAST(current_setting('autovacuum_freeze_max_age') AS numeric)) * 100,0) as pct " \
-        "FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND CAST(current_setting('autovacuum_freeze_max_age') " \
-        "AS bigint) - age(c.relfrozenxid)::bigint > 1::bigint and  CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC" % (schema, threshold_freeze)
+        "FROM pg_class c, pg_namespace n WHERE n.nspname = '%s' and n.oid = c.relnamespace and c.relkind not in ('i','v','S','c') AND " \
+        "CAST(current_setting('autovacuum_freeze_max_age') AS bigint) - age(c.relfrozenxid)::bigint > %d ORDER BY age(c.relfrozenxid) DESC" % (schema, threshold_freeze)
   if debug: printit("DEBUG   QUERY: %s" % sql)
 
   try:
