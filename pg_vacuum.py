@@ -264,7 +264,7 @@ def getload():
 '''
 
 def get_query_cnt(conn, cur):
-    sql = "select count(*) from pg_stat_activity where state = 'active' and application_name = 'pg_vacuum' and query like 'VACUUM FREEZE VERBOSE%' OR query like 'VACUUM (ANALYZE VERBOSE%' OR query like 'VACUUM (VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
+    sql = "select count(*) from pg_stat_activity where state = 'active' and application_name = 'pg_vacuum' and query like 'VACUUM (FREEZE VERBOSE)%' OR query like 'VACUUM (ANALYZE VERBOSE%' OR query like 'VACUUM (VERBOSE%' OR query like 'ANALYZE VERBOSE%'"
     cur.execute(sql)
     rows = cur.fetchone()
     return int(rows[0])
