@@ -85,6 +85,7 @@
 #                        Set max size to 1TB. Anything greater is rejected.
 # July 22, 2023    V5.4  Changed logic for freezing tables. Now it is based on an xid_age minimum value instead of a percentage of max freeze threshold
 # July 31, 2023    V5.5  Fixed bugs for FREEZE query and removed limit clause
+# Aug. 02, 2023    V5.6  Fixed bug with empty list for vacuums in progress
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -114,7 +115,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.5  July 31, 2023'
+version = '5.6  August 02, 2023'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -273,7 +274,11 @@ def get_vacuums_in_progress(conn, cur):
     sql = "SELECT 'tables', array_agg(relid::regclass) from pg_stat_progress_vacuum group by 1"
     cur.execute(sql)
     rows = cur.fetchone()
-    return rows[1]
+    if rows == None:
+        return ''
+    else:
+        return rows[1]
+       
 
 def skip_table (atable, tablist):
     #print ("table=%s  tablist=%s" % (atable, tablist))
@@ -697,6 +702,12 @@ active_processes = 0
 
 # add running vacuum/analyzes to table bypass list
 add_runningvacs_to_tablist(conn,cur,tablist)
+
+#print("calling get vacuums...")
+#tables = get_vacuums_in_progress(conn, cur)
+#print(tables)
+#time.sleep(2)
+#print("calling get vacuums...")
 
 
 #################################
