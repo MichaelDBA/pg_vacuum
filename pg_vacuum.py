@@ -1,4 +1,3 @@
-#!/usr/bin/env python2
 #!/usr/bin/env python3
 #!/usr/bin/env python2
 ############### NOTE: weird errors occur when weird characters are saved. Go to Notepad++ and select macro-->Trim trailing space and save
@@ -86,6 +85,7 @@
 # July 22, 2023    V5.4  Changed logic for freezing tables. Now it is based on an xid_age minimum value instead of a percentage of max freeze threshold
 # July 31, 2023    V5.5  Fixed bugs for FREEZE query and removed limit clause
 # Aug. 02, 2023    V5.6  Fixed bug with empty list for vacuums in progress
+# Oct.  27 2026    V5.7  Use Python3 as default shebang and fix arg parser for --freeze
 #
 # Notes:
 #   1. Do not run this program multiple times since it may try to vacuum or analyze the same table again
@@ -93,6 +93,7 @@
 #   2. Change top shebang line to account for python, python or python2
 #   3. By default, system schemas are not included when schemaname is ommitted from command line.
 #   4. Setting dead_tuples to zero will force pg_vacuum to vacuum/analyze all tables that have no previous vacuum/analyzes.
+#   5. Weird errors occur when weird characters are saved. Go to Notepad++ and select macro-->Trim trailing space and save
 #
 # pgbench setup for testing:
 #     turn off autovacuum for testing
@@ -115,7 +116,7 @@ from optparse import OptionParser
 import psycopg2
 import subprocess
 
-version = '5.6  August 02, 2023'
+version = '5.7  October 27, 2026'
 pgversion = 0
 OK = 0
 BAD = -1
@@ -131,6 +132,9 @@ threshold_dead_tups = 1000
 
 # 10 billion row threshold
 threshold_async_rows = 10000000000
+
+# 400 GB threshold, above this table actions are deferred
+threshold_max_size = 429496729600
 
 # v 4.1 fix: no minimum, go by max only!
 # 50 MB minimum threshold
@@ -149,6 +153,12 @@ load_threshold = 250
 # PG v13+ enable parallel vacuuming for indexes > 130000
 bParallel = False
 parallelworkers = 0
+
+#v5.0 fix: DISABLE PAGE SKIPPING Followed by boolean is not valid pre PG v12
+if pgversion > 120000:
+    parallelstatement = 'DISABLE_PAGE_SKIPPING FALSE'
+else:
+    parallelstatement = ''
 
 class Range(object):
     def __init__(self, start, end):
@@ -206,7 +216,7 @@ def execute_cmd(text):
 
 def get_process_cnt():
     # v5.2 fix: added case insensitive grep search ("-i")
-    cmd = "ps -ef | grep -i 'VACUUM (VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
+    cmd = r"ps -ef | grep -i 'VACUUM (VERBOSE\|ANALYZE VERBOSE' | grep -v grep | wc -l"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     result = int(result.decode('ascii'))
     return result
@@ -220,7 +230,7 @@ def highload():
         # V4.6
         cmd = "uptime | awk '{print $(NF-2)}'"
     else:
-        cmd = "uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
+        cmd = r"uptime | sed 's/.*load average: //' | awk -F\, '{print $1}'"
     result = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
     min1  = str(result.decode())
     loadn = int(float(min1))
@@ -497,7 +507,7 @@ parser.add_argument("-x", "--vacuummaxdays"  ,dest="maxdaysV",      help="Vacuum
 parser.add_argument("-t", "--mindeadtups",dest="mindeadtups",       help="min dead tups",     type=int, default=-1,metavar="MINDEADTUPS")
 parser.add_argument("-z", "--minmodanalyzed",dest="minmodanalyzed", help="min tups analyzed", type=int, default=-1,metavar="MINMODANALYZED")
 parser.add_argument("-b", "--maxtables",dest="maxtables",           help="max tables",        type=int, default=9999,metavar="MAXTABLES")
-parser.add_argument("-f", "--freeze", dest="freeze",                help="vacuum freeze xid%",   type=int, default=-1, metavar="FREEZE > xid_age")
+parser.add_argument("-f", "--freeze", dest="freeze",                help="vacuum freeze xid%%",   type=int, default=-1, metavar="FREEZE > xid_age")
 parser.add_argument("-e", "--autotune", dest="autotune",            help="autotune",          type=float, choices=[Range(0.00001, 0.2)], metavar="AUTOTUNE 0.00001 to 0.2")
 parser.add_argument("-q", "--inquiry", dest="inquiry",              help="inquiry requested", type=str, default="", choices=['all', 'found', ''],  metavar="INQUIRY all | found")
 
@@ -616,9 +626,8 @@ else:
         printit('autotune range must be > 0.00001 and < 0.2.  Value provided = %f' % autotune)
         sys.exit(1)
 
-printit ("version: %s" % version)
-printit ("dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size(GB/bytes):%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
-        % (dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, args.maxsize, freeze, nullsonly, autotune, checkstats))
+printit ("version: %s  dryrun(%r) inquiry(%s) ignoreparts(%r) host:%s dbname=%s schema=%s dbuser=%s dbport=%d  Analyze max days:%d  Vacuumm max days:%d  min dead tups:%d  max table size(GB/bytes):%d/%d  freeze:%d nullsonly=%r autotune=%f check=%r" \
+        % (version, dryrun, inquiry, ignoreparts, hostname, dbname, schema, dbuser, dbport, threshold_max_days_analyze, threshold_max_days_vacuum, threshold_dead_tups, args.maxsize, threshold_max_size, freeze, nullsonly, autotune, checkstats))
 
 # Connect
 # conn = psycopg2.connect("dbname=testing user=postgres host=locahost password=postgrespass")
@@ -702,12 +711,6 @@ active_processes = 0
 
 # add running vacuum/analyzes to table bypass list
 add_runningvacs_to_tablist(conn,cur,tablist)
-
-#print("calling get vacuums...")
-#tables = get_vacuums_in_progress(conn, cur)
-#print(tables)
-#time.sleep(2)
-#print("calling get vacuums...")
 
 
 #################################
@@ -970,7 +973,7 @@ if nullsonly:
               # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
               # V4.1 fix, escape double quotes
               tbl= table.replace('"', '\\"')
-              tbl= tbl.replace('$', '\$')
+              tbl= tbl.replace('$', r'\$')
 
               if vac_cnt == 0 and anal_cnt == 0:
                   # v5.0 fix: handle empty parallelstatement string
@@ -1186,7 +1189,7 @@ if bfreeze:
               # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
               # V4.1 fix, escape double quotes
               tbl= table.replace('"', '\\"')
-              tbl= tbl.replace('$', '\$')
+              tbl= tbl.replace('$', r'\$')
               cmd = 'nohup psql -d "%s" -c "VACUUM (FREEZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
               time.sleep(0.5)
               asyncjobs = asyncjobs + 1
@@ -1407,7 +1410,7 @@ if bautotune:
                   cnt = cnt - 1
                   continue
               tbl= table.replace('"', '\\"')
-              tbl= tbl.replace('$', '\$')
+              tbl= tbl.replace('$', r'\$')
               cmd = 'nohup psql -d "%s" -c "%s %s" 2>/dev/null &' % (connparms, sql2, tbl)
               time.sleep(0.5)
               asyncjobs = asyncjobs + 1
@@ -1613,10 +1616,12 @@ for row in rows:
             printit ("%s %10s: %04d %-57s rows: %11d size: %10s :%13d dead: %8d analyzed: %8d" % (ASYNC, action_name, cnt, table, tups, sizep, size, dead, analyzed))
             asyncjobs = asyncjobs + 1
 
+            # v3.1 change to include application name
+            connparms = "dbname=%s port=%d user=%s host=%s application_name=%s" % (dbname, dbport, dbuser, hostname, 'pg_vacuum' )
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (ANALYZE, VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
-            tbl= tbl.replace('$', '\$')
+            tbl= tbl.replace('$', r'\$')
             if parallelstatement == '':
               cmd = 'nohup psql -d "%s" -c "VACUUM (ANALYZE, VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             else:
@@ -1825,7 +1830,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
-            tbl= tbl.replace('$', '\$')
+            tbl= tbl.replace('$', r'\$')
             if parallelstatement == '':
               cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             else:
@@ -1921,8 +1926,6 @@ else:
       "t.tablename = c.relname and c.relname = u.relname and u.schemaname = n.nspname and now()::date - GREATEST(last_analyze, last_autoanalyze)::date > %d " \
       "and pg_total_relation_size(quote_ident(n.nspname) || '.' || quote_ident(c.relname)) <= %d order by 1,2" % (schema, threshold_max_days_analyze, threshold_max_size)
 
-if debug: printit("DEBUG   MODE: (7) %s" % sql)
-
 try:
     cur.execute(sql)
 except Exception as error:
@@ -2010,7 +2013,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
-            tbl= tbl.replace('$', '\$')
+            tbl= tbl.replace('$', r'\$')
             cmd = 'nohup psql -d "%s" -c "ANALYZE VERBOSE %s" 2>/dev/null &' % (connparms, tbl)
 
             time.sleep(0.5)
@@ -2183,7 +2186,7 @@ for row in rows:
             # cmd = 'nohup psql -h %s -d %s -p %s -U %s -c "VACUUM (VERBOSE, %s) %s" 2>/dev/null &' % (hostname, dbname, dbport, dbuser, parallelstatement, table)
             # V4.1 fix, escape double quotes
             tbl= table.replace('"', '\\"')
-            tbl= tbl.replace('$', '\$')
+            tbl= tbl.replace('$', r'\$')
             if parallelstatement == '':
               cmd = 'nohup psql -d "%s" -c "VACUUM (VERBOSE) %s" 2>/dev/null &' % (connparms, tbl)
             else:
@@ -2234,7 +2237,7 @@ if rc > 0:
 
 # v3.1 feature: show async jobs running
 #ps -ef | grep 'psql -h '| grep -v '\--color'
-psjobs = "ps -ef | grep 'psql -h %s'| grep -v '\--color'" % hostname
+psjobs = r"ps -ef | grep 'psql -h %s'| grep -v '\--color'" % hostname
 #print ("psjobs = %s" % psjobs)
 
 if inquiry:
